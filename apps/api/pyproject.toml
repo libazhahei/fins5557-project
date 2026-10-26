@@ -1,0 +1,31 @@
+[project]
+name = "quant-lab-api"
+version = "0.1.0"
+description = "Quant Lab FastAPI service"
+requires-python = ">=3.12"
+dependencies = [
+  "quant-lab-quant",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.34",
+  "sqlalchemy>=2.0",
+  "psycopg[binary]>=3.2",
+  "alembic>=1.14",
+  "pydantic-settings>=2.7",
+  "python-jose[cryptography]>=3.3",
+  "passlib[bcrypt]>=1.7",
+  "httpx>=0.28",
+  "python-multipart>=0.0.20",
+]
+
+[tool.uv.sources]
+quant-lab-quant = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/quant_lab_api" = "quant_lab_api"
+
+[project.scripts]
+quant-lab-api = "quant_lab_api.main:run"

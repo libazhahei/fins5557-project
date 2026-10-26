@@ -151,7 +151,16 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv-lab
 env/
+node_modules/
+apps/web/dist/
+.pnpm-store/
+node_modules/.pnpm-store/
+var/objects/**
+!var/objects/.gitkeep
+*.tsbuildinfo
+
 venv/
 ENV/
 env.bak/
@@ -251,3 +260,11 @@ project/cache/precomputed/runs/custom*/**
 # project data — ignored entirely (recreated inside container)
 project/data/
 example_runs/
+
+# Quant Lab monorepo
+node_modules/
+apps/web/dist/
+.pnpm-store/
+var/objects/**
+!var/objects/.gitkeep
+*.tsbuildinfo

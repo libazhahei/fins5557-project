@@ -1,0 +1,13 @@
+{
+  "name": "@quant-lab/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAPI contracts and generated clients for Quant Lab",
+  "scripts": {
+    "check": "node -e \"require('fs').accessSync('openapi/openapi.yaml')\""
+  },
+  "files": [
+    "openapi"
+  ]
+}

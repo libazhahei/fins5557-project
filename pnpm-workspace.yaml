@@ -1,0 +1,9 @@
+packages:
+  - "apps/web"
+  - "apps/agent"
+  - "packages/contracts"
+
+allowBuilds:
+  '@google/genai': true
+  esbuild: true
+  protobufjs: true

@@ -1,0 +1,65 @@
+openapi: 3.1.0
+info:
+  title: Quant Lab API
+  version: 0.1.0
+  description: |
+    Agent-first quant research lab. Phase 0 exposes health only.
+    Models: gemini-3.8-flash (primary), gemini-3.1-flash-lite (test + context compact).
+servers:
+  - url: http://localhost:8080
+    description: Local api
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /ready:
+    get:
+      operationId: getReady
+      summary: Readiness
+      responses:
+        "200":
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  database:
+                    type: string
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status, service, version]
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+        version:
+          type: string
+        environment:
+          type: string
+        models:
+          type: object
+          properties:
+            primary:
+              type: string
+              example: gemini-3.8-flash
+            lite:
+              type: string
+              example: gemini-3.1-flash-lite
+            lite_roles:
+              type: array
+              items:
+                type: string

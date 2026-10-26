@@ -1,6 +1,6 @@
 {
-  "venvPath": "project",
+  "include": ["packages/quant/src", "apps/api/src", "apps/worker/src"],
+  "venvPath": ".",
   "venv": ".venv",
-  "extraPaths": ["project/src"],
-  "pythonVersion": "3.13"
+  "pythonVersion": "3.12"
 }

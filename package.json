@@ -1,0 +1,14 @@
+{
+  "name": "quant-lab",
+  "private": true,
+  "packageManager": "pnpm@12.10.1",
+  "scripts": {
+    "dev:web": "pnpm --filter @quant-lab/web dev",
+    "dev:agent": "pnpm --filter @quant-lab/agent dev",
+    "build": "pnpm -r run build",
+    "lint": "pnpm -r run lint --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

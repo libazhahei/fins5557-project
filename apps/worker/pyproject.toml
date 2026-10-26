@@ -1,0 +1,24 @@
+[project]
+name = "quant-lab-worker"
+version = "0.1.0"
+description = "Quant Lab job worker (Cloud Run Jobs entry)"
+requires-python = ">=3.12"
+dependencies = [
+  "quant-lab-quant",
+  "quant-lab-api",
+  "pydantic-settings>=2.7",
+]
+
+[tool.uv.sources]
+quant-lab-quant = { workspace = true }
+quant-lab-api = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/quant_lab_worker" = "quant_lab_worker"
+
+[project.scripts]
+quant-lab-worker = "quant_lab_worker.main:main"

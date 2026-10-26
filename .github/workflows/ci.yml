@@ -1,26 +1,40 @@
-name: CI
+name: ci
 
 on:
   push:
-    branches: [main, app]
+    branches: [main, master, deploy]
+  pull_request:
 
 jobs:
-  test:
+  python:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: project
     steps:
       - uses: actions/checkout@v4
-
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          enable-cache: true
+      - name: Sync and test
+        run: |
+          uv sync --all-packages
+          uv run pytest -q
 
-      - name: Resolve / install deps (conflict check)
-        run: uv sync --frozen
-
-      - name: Run unit tests
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-        run: uv run pytest tests/ -q
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install and build
+        run: |
+          printf '%s\n' 'dangerouslyAllowAllBuilds=true' 'strict-dep-builds=false' 'verifyDepsBeforeRun=false' > .npmrc
+          pnpm install
+          pnpm approve-builds -y esbuild @google/genai protobufjs || true
+          pnpm --filter @quant-lab/web run test
+          pnpm --filter @quant-lab/web run build
+          pnpm --filter @quant-lab/agent run test
+          pnpm --filter @quant-lab/agent run build
