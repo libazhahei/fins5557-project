@@ -75,15 +75,23 @@ async def post_message(
 
     auth = request.headers.get("authorization") or ""
     user_token = auth.removeprefix("Bearer ").strip()
+    llm_key = request.headers.get("x-user-llm-key")
+    llm_provider = request.headers.get("x-user-llm-provider")
+
+    forward_headers = {"X-Service-Secret": settings.service_shared_secret}
+    if llm_key:
+        forward_headers["X-User-LLM-Key"] = llm_key
+    if llm_provider:
+        forward_headers["X-User-LLM-Provider"] = llm_provider
 
     async with httpx.AsyncClient(timeout=None) as client:
         try:
             res = await client.post(
                 f"{settings.agent_base_url}/sessions/{session_id}/messages",
-                headers={"X-Service-Secret": settings.service_shared_secret},
+                headers=forward_headers,
                 json={
                     "message": body.message,
-                    "provider": body.provider or row.provider,
+                    "provider": body.provider or llm_provider or row.provider,
                     "model": body.model or row.model,
                     "user_token": user_token,
                 },

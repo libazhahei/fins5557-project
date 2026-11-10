@@ -3,7 +3,11 @@ name = "quant-lab"
 version = "0.1.0"
 description = "Agent-first quant research lab (Quant Lab)"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+  "quant-lab-api",
+  "quant-lab-quant",
+  "quant-lab-worker",
+]
 
 [tool.uv.workspace]
 members = [
@@ -11,6 +15,11 @@ members = [
   "apps/api",
   "apps/worker",
 ]
+
+[tool.uv.sources]
+quant-lab-api = { workspace = true }
+quant-lab-quant = { workspace = true }
+quant-lab-worker = { workspace = true }
 
 [tool.uv]
 package = false

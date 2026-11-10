@@ -1,64 +1,41 @@
 # Navigation and IA · Quant Lab
 
-产品信息架构定稿。原则见 `.cursor/rules/core/design-core.mdc`；实现约定见 `.cursor/rules/frontend/ia-navigation-and-structure.mdc`。需求来源：[docs/PRD.md](../../docs/PRD.md)。
+产品信息架构（Step 1 工作台合流后）。原则见 `.cursor/rules/core/design-core.mdc`。
 
-- **Goal**：让个人研究者与量化入门者用「对话 → 回测 → 图表 → 解读」心智模型找到能力；进阶流水线不挡主路径。
-- **UI 语言**：中文名词导航；标的代码（如 `SPY`）保持英文惯例。
+- **Goal**：同一屏幕完成「假设 → 回测 → 带基准图表 → 人话报告」；历史与设置可深链回工作台。
+- **UI 语言**：默认英文，可切换中文；标的代码保持英文。
 
 ## Sitemap
 
 ```text
-登录 / 注册（邀请码）
-└── 应用壳
-    ├── 实验室          ← 默认落地（对话优先）
-    ├── 图表            ← K 线 + 策略叠加（K2）
-    ├── 实验记录        ← runs / 对比 / 报告入口
-    ├── 流水线          ← 进阶：步骤可视与组装（P1 强调）
-    └── 设置            ← 账号、LLM Key、默认标的池
+Landing /
+├── Login /login
+└── App shell
+    ├── Workspace /workspace?runId&compareIds   ← 默认研究画布（三栏）
+    ├── Runs /runs                             ← 列表，打开深链回 workspace
+    ├── Signals /signals                       ← Step4 占位
+    └── Settings /settings
 ```
 
-| 导航标签 | 路由建议 | 用途 | 优先级 |
+已移除独立页：`/charts`、`/pipeline`（重定向到 `/workspace`）。
+
+| 导航标签 | 路由 | 用途 | 优先级 |
 | --- | --- | --- | --- |
-| 实验室 | `/lab` | 左对话 / 右结果摘要；模板与 Agent 步骤 | P0 默认首页 |
-| 图表 | `/charts` | 研究画布；可从实验室/某次 run 深链带入 `runId` | P0 |
-| 实验记录 | `/runs` | 历史 run 列表；详情含报告；P1 对比 | P0 列表 / P1 对比 |
-| 流水线 | `/pipeline` | M1–M9 步骤图；与对话同一 Job 模型 | P1 |
-| 设置 | `/settings` | 账号、邀请相关说明、LLM Key、默认宇宙 | P0 |
+| Workspace / 实验室 | `/workspace` | 模板+参数 / 图表+KPI+M1–M9 / AI+对话 | P0 |
+| Runs / 实验记录 | `/runs` | 历史列表 → `?runId=` | P0 |
+| Signals / 今日信号 | `/signals` | 订阅策略日频占位 | Step4 stub |
+| Settings / 设置 | `/settings` | 数据源、标的池、会话 LLM Key | P0 |
 
-### 深层与面包屑
+## Auth（lazy）
 
-- 实验详情：`实验记录 / {run 名称}`
-- 报告：`实验记录 / {run 名称} / 解读`
-- 图表带 run：`图表`（上下文条显示当前 run，可返回实验记录）
-- 对比（P1）：`实验记录 / 对比`
-
-深度控制在约三层以内。
-
-## 主界面构图（实验室）
-
-- **第一屏**：品牌 **Quant Lab** + 对话区 + 可选模板入口（买入持有 / 60·40 / 趋势+波动目标 / 空白）；不堆 KPI 条。
-- **运行中**：步骤进度（可展开单步）；主 CTA 保持单一（如「确认并回测」）。
-- **完成后**：右侧摘要（关键指标 + 链到「打开图表」「阅读解读」）。
+- Landing + Workspace 可逛；游客可跑回测（`X-Guest-Session`）。
+- AI Agent、ideas 落库、订阅信号、个人 Key 持久意图 → 登录。
 
 ## 命名约定
 
-| 概念 | 统一用词 | 避免 |
+| 概念 | EN | ZH |
 | --- | --- | --- |
-| 一次完整实验 | 实验 / run | job（对用户）、task |
-| 对话工作区 | 实验室 | Chat、Agent 房 |
-| 历史列表 | 实验记录 | Projects、Workspace |
-| 步骤编排 | 流水线 | DAG、Workflow（可作副文案） |
-| 解读文案 | 解读 / 报告 | 诊断书、Alpha brief |
-
-- 导航与标题用**名词、现在时**（「实验记录」，不是「管理实验」）。
-- 同一概念在导航、面包屑、按钮、空状态中用同一标签。
-
-## 空状态与反馈（摘要）
-
-- **实验室无会话**：提示选模板或输入一句策略想法；主按钮「从模板开始」。
-- **实验记录为空**：说明首次回测入口，链回实验室。
-- **图表无 run**：提示先从实验室跑一次，或从实验记录打开。
-
-## 非导航（v1 不做入口）
-
-- 实盘 / 下单、Billing、Team、实时行情终端。
+| 工作台 | Workspace | 实验室 |
+| 一次实验 | Run | 实验 |
+| 历史列表 | Runs | 实验记录 |
+| 解读 | AI report | AI 三段式解读 |

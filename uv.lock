@@ -2717,6 +2717,11 @@ wheels = [
 name = "quant-lab"
 version = "0.1.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "quant-lab-api" },
+    { name = "quant-lab-quant" },
+    { name = "quant-lab-worker" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -2725,6 +2730,11 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [
+    { name = "quant-lab-api", editable = "apps/api" },
+    { name = "quant-lab-quant", editable = "packages/quant" },
+    { name = "quant-lab-worker", editable = "apps/worker" },
+]
 
 [package.metadata.requires-dev]
 dev = [

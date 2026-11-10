@@ -1,10 +1,9 @@
 openapi: 3.1.0
 info:
   title: Quant Lab API
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    Agent-first quant research lab. Phase 0 exposes health only.
-    Models: gemini-3.8-flash (primary), gemini-3.1-flash-lite (test + context compact).
+    Agent-first quant research lab. Step 1 workspace contracts + Step 2–4 stubs.
 servers:
   - url: http://localhost:8080
     description: Local api
@@ -23,20 +22,171 @@ paths:
   /ready:
     get:
       operationId: getReady
-      summary: Readiness
+      summary: Readiness and config status
       responses:
         "200":
           description: Ready
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  database:
-                    type: string
+                $ref: "#/components/schemas/Ready"
+  /runs/templates:
+    get:
+      operationId: listTemplates
+      parameters:
+        - name: locale
+          in: query
+          schema:
+            type: string
+            default: en
+      responses:
+        "200":
+          description: Template list
+  /runs/from-template:
+    post:
+      operationId: createRunFromTemplate
+      parameters:
+        - $ref: "#/components/parameters/GuestSession"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TemplateRunIn"
+      responses:
+        "200":
+          description: Run created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "400":
+          description: Invalid symbols or template
+  /runs:
+    get:
+      operationId: listRuns
+      parameters:
+        - $ref: "#/components/parameters/GuestSession"
+      responses:
+        "200":
+          description: Run list
+  /runs/compare:
+    get:
+      operationId: compareRuns
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/GuestSession"
+      responses:
+        "200":
+          description: Batch JobSpec + summary (Step 2 stub usable)
+  /runs/{run_id}:
+    get:
+      operationId: getRun
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/GuestSession"
+      responses:
+        "200":
+          description: Run detail including steps_trace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+  /runs/{run_id}/overlays:
+    get:
+      operationId: getRunOverlays
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/GuestSession"
+      responses:
+        "200":
+          description: Equity, benchmark, markers, mc/rv stubs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Overlays"
+  /runs/{run_id}/subscribe:
+    post:
+      operationId: subscribeRun
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Daily signal subscription flag
+  /ideas:
+    get:
+      operationId: listIdeas
+      responses:
+        "200":
+          description: Idea drafts
+    post:
+      operationId: createIdea
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [raw_text]
+              properties:
+                raw_text:
+                  type: string
+                source_url:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Draft saved (Step 3 DSL later)
+  /signals/daily:
+    get:
+      operationId: getDailySignals
+      responses:
+        "200":
+          description: Subscribed runs + last_target_weights (Step 4 stub)
+  /agent/sessions/{session_id}/messages:
+    post:
+      operationId: postAgentMessage
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-User-LLM-Key
+          in: header
+          schema:
+            type: string
+        - name: X-User-LLM-Provider
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent reply
 components:
+  parameters:
+    GuestSession:
+      name: X-Guest-Session
+      in: header
+      schema:
+        type: string
+      description: Anonymous session id when not logged in
   schemas:
     Health:
       type: object
@@ -52,14 +202,156 @@ components:
           type: string
         models:
           type: object
-          properties:
-            primary:
-              type: string
-              example: gemini-3.8-flash
-            lite:
-              type: string
-              example: gemini-3.1-flash-lite
-            lite_roles:
-              type: array
-              items:
+    Ready:
+      type: object
+      properties:
+        status:
+          type: string
+        database:
+          type: string
+        data_source:
+          type: object
+        llm:
+          type: object
+        features:
+          type: object
+    TemplateRunIn:
+      type: object
+      properties:
+        template_id:
+          type: string
+        template:
+          type: string
+        symbols:
+          type: array
+          items:
+            type: string
+        start_date:
+          type: string
+        end_date:
+          type: string
+        cost_bps:
+          type: number
+        strategy_params:
+          type: object
+        use_fixtures:
+          type: boolean
+          default: true
+        enable_mc:
+          type: boolean
+          default: false
+        enable_rv_ml:
+          type: boolean
+          default: false
+        locale:
+          type: string
+          default: en
+    StepTrace:
+      type: object
+      properties:
+        module_id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        duration_ms:
+          type: integer
+        io_summary:
+          type: string
+    Narrative:
+      type: object
+      properties:
+        headline:
+          type: string
+        attribution:
+          type: string
+        honest_warnings:
+          type: array
+          items:
+            type: string
+        next_actions:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
                 type: string
+              patch_params:
+                type: object
+    Run:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        template:
+          type: string
+        status:
+          type: string
+        params:
+          type: object
+        summary:
+          type: object
+        steps_trace:
+          type: array
+          items:
+            $ref: "#/components/schemas/StepTrace"
+        is_subscribed_daily:
+          type: boolean
+        last_target_weights:
+          type: object
+          nullable: true
+    Marker:
+      type: object
+      properties:
+        time:
+          type: integer
+        symbol:
+          type: string
+        action:
+          type: string
+        weight_before:
+          type: number
+          nullable: true
+        weight_after:
+          type: number
+          nullable: true
+        price:
+          type: number
+          nullable: true
+        fee_bps:
+          type: number
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+    Overlays:
+      type: object
+      properties:
+        run_id:
+          type: string
+        equity:
+          type: array
+          items:
+            type: object
+        benchmark_equity:
+          type: array
+          items:
+            type: object
+        markers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Marker"
+        mc_paths:
+          type: array
+          items: {}
+        rv_predictions:
+          type: array
+          items: {}
+        summary:
+          type: object
+        panel_uri:
+          type: string
+          nullable: true

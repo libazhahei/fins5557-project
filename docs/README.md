@@ -7,3 +7,4 @@
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | 本地 monorepo 启动与测试 |
 | 技术计划 | [Quant Lab Refactor](file:///home/shilong/.cursor/plans/quant_lab_refactor_12a23f18.plan.md)（Cursor 计划；架构与分阶段实现） |
 | [IA 导航](../design/ia/navigation.md) | 产品信息架构与导航定稿 |
+| [Step1 进度](./reports/04-step1-workspace-progress.md) | 工作台合流：已完成项、启动方式、后续 Step |

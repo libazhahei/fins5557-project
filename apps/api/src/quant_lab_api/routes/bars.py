@@ -1,26 +1,21 @@
 from __future__ import annotations
 
 import io
-from pathlib import Path
-
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from quant_lab_api.deps import get_current_user
-from quant_lab_api.models import User
+from quant_lab_api.deps import Actor, get_actor
+from quant_lab_api.paths import fixture_prices_dir
 from quant_lab_api.store_factory import get_object_store
 
 router = APIRouter(prefix="/bars", tags=["bars"])
-
-FIXTURE_DIR = Path(__file__).resolve().parents[5] / "packages/quant/tests/fixtures/prices"
-
 
 @router.get("")
 def get_bars(
     symbol: str = Query(..., min_length=1),
     panel_uri: str | None = None,
     limit: int = Query(800, ge=50, le=5000),
-    _: User = Depends(get_current_user),
+    _: Actor = Depends(get_actor),
 ) -> dict:
     symbol = symbol.upper()
     store = get_object_store()
@@ -44,7 +39,7 @@ def get_bars(
 
     if df is None:
         # try per-ticker artifact under any job is hard; fall back to fixtures
-        path = FIXTURE_DIR / f"{symbol}.csv"
+        path = fixture_prices_dir() / f"{symbol}.csv"
         if not path.exists():
             raise HTTPException(status_code=404, detail=f"No bars for {symbol}")
         raw = pd.read_csv(path, parse_dates=["Date"]).set_index("Date").sort_index()

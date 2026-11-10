@@ -22,7 +22,8 @@ def append_event(db: Session, job: Job, kind: str, message: str = "", payload: d
 def create_job(
     db: Session,
     *,
-    user_id: str,
+    user_id: str | None = None,
+    guest_session_id: str | None = None,
     job_type: str,
     params: dict,
     input_uris: list[str] | None = None,
@@ -34,6 +35,7 @@ def create_job(
         execute_now = settings.job_sync_default
     job = Job(
         user_id=user_id,
+        guest_session_id=guest_session_id,
         job_type=job_type,
         status="queued",
         params=params or {},
@@ -99,10 +101,27 @@ def execute_job(db: Session, job_id: str) -> Job:
                 run.panel_uri = result.metrics.get("panel_uri")
             if job.job_type == JobType.BACKTEST.value:
                 run.equity_uri = result.metrics.get("equity_uri")
-                run.summary = {**run.summary, **{k: v for k, v in result.metrics.items() if k != "equity_uri"}}
+                run.benchmark_uri = result.metrics.get("benchmark_uri")
+                run.weights_uri = result.metrics.get("weights_uri")
+                run.markers_uri = result.metrics.get("markers_uri")
+                if result.metrics.get("last_target_weights"):
+                    run.last_target_weights = result.metrics["last_target_weights"]
+                skip = {
+                    "equity_uri",
+                    "benchmark_uri",
+                    "weights_uri",
+                    "markers_uri",
+                    "last_target_weights",
+                }
+                run.summary = {
+                    **(run.summary or {}),
+                    **{k: v for k, v in result.metrics.items() if k not in skip},
+                }
                 run.status = "succeeded"
             if job.job_type == JobType.REPORT.value:
                 run.report_uri = (result.output_uris or [None])[0]
+                if result.metrics.get("narrative"):
+                    run.summary = {**(run.summary or {}), "narrative": result.metrics["narrative"]}
             db.commit()
     return job
 
