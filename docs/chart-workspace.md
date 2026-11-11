@@ -40,8 +40,14 @@ When `vp` is enabled, the indicator toolbar shows a window control next to Vol P
 - Session-only; refresh resets to Visible
 - `ChartWorkspace` resolves `{ fromIdx, toIdx }` via `lib/vpWindow.ts` and pushes it to the page for `indicators.compute({ view })`
 
+## Pred / Logs (Step 2 closeout)
+
+- Pred ON: wasm ARIMA band on main; HV/EWMA (or M8) on volatility sub-pane; optional regime tint.
+- Logs ON: BUY/SELL markers on candle time/price; click ↔ Trade Log table selection/scroll.
+- Geometry helpers: `lib/predictionOverlayRender.ts` (SVG paths via `convertToPixel`).
+
 ## Related files
 
 - `DrawingToolbar.tsx` — Trend / Fib / Rect / Horiz / Clear
 - `IndicatorToolbar.tsx` — pinned BOLL/SMA/EMA/VOL/RSI/MACD + More + VP window
-- `lib/indicatorPlacement.ts`, `lib/resampleBars.ts`, `lib/vpWindow.ts`
+- `lib/indicatorPlacement.ts`, `lib/resampleBars.ts`, `lib/vpWindow.ts`, `lib/predictionOverlayRender.ts`

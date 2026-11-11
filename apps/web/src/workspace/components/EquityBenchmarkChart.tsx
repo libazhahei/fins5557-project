@@ -4,6 +4,7 @@ import {
   createChart,
   LineSeries,
   type IChartApi,
+  type ISeriesApi,
   type Time,
 } from "lightweight-charts";
 
@@ -16,9 +17,17 @@ type Props = {
   height?: number;
 };
 
+function seriesSignature(series: Series[]): string {
+  return series
+    .map((s) => `${s.id}:${s.color}:${s.data.length}:${s.data[0]?.time ?? 0}:${s.data.at(-1)?.value ?? 0}`)
+    .join("|");
+}
+
 export function EquityBenchmarkChart({ series, height = 140 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const linesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  const sigRef = useRef("");
 
   useEffect(() => {
     if (!ref.current) return;
@@ -38,15 +47,6 @@ export function EquityBenchmarkChart({ series, height = 140 }: Props) {
       timeScale: { borderVisible: false },
     });
     chartRef.current = chart;
-    for (const s of series) {
-      const line = chart.addSeries(LineSeries, {
-        color: s.color,
-        lineWidth: 2,
-        title: s.label,
-      });
-      line.setData(s.data.map((p) => ({ time: p.time as Time, value: p.value })));
-    }
-    chart.timeScale().fitContent();
     let ro: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined" && ref.current) {
       ro = new ResizeObserver(() => {
@@ -58,8 +58,41 @@ export function EquityBenchmarkChart({ series, height = 140 }: Props) {
       ro?.disconnect();
       chart.remove();
       chartRef.current = null;
+      linesRef.current.clear();
+      sigRef.current = "";
     };
-  }, [series, height]);
+  }, [height]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const sig = seriesSignature(series);
+    if (sig === sigRef.current) return;
+    sigRef.current = sig;
+
+    const keep = new Set(series.map((s) => s.id));
+    for (const [id, line] of linesRef.current) {
+      if (!keep.has(id)) {
+        chart.removeSeries(line);
+        linesRef.current.delete(id);
+      }
+    }
+    for (const s of series) {
+      let line = linesRef.current.get(s.id);
+      if (!line) {
+        line = chart.addSeries(LineSeries, {
+          color: s.color,
+          lineWidth: 2,
+          title: s.label,
+        });
+        linesRef.current.set(s.id, line);
+      } else {
+        line.applyOptions({ color: s.color, title: s.label });
+      }
+      line.setData(s.data.map((p) => ({ time: p.time as Time, value: p.value })));
+    }
+    chart.timeScale().fitContent();
+  }, [series]);
 
   return <div ref={ref} className="w-full" style={{ height }} />;
 }

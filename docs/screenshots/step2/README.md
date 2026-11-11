@@ -1,22 +1,34 @@
 # Step 2 Workspace Screenshots
 
-Captured from local `/workspace` on **2026-11-11** (viewport ≈ 1440×900), guest session `docs-screenshots`.
+Captured from local `/workspace` on **2026-11-11** (viewport ≈ 1440×900).
 
-Live runs used for Lab / Diff / trade markers:
+## Verification set (click-through)
+
+Live runs used for Lab / Diff:
 
 | Run | Template | Sharpe (UI) |
 | --- | --- | --- |
-| `9844e8a6-…` | Trend + Vol Target | 0.69 |
-| `4d91055e-…` | Classic 60/40 | 0.83 |
+| `841aa697-…` | Trend + Vol Target | 0.31 |
+| `5a1b8321-…` | Buy & Hold | 0.78 |
+
+| File | Activity | Result |
+| --- | --- | --- |
+| [market-pred-verify.png](./market-pred-verify.png) | **Market** | Pred ON · `Pred 4` (research sketch + AI RV Cone / RV 5D / HV Regime) · `pred_vol` sub-pane · WASM series drawn |
+| [lab-equity-verify.png](./lab-equity-verify.png) | **Lab** | Run KPIs · equity vs SPY · Logs/Pred ON · Trade log rows visible |
+| [lab-pred-verify.png](./lab-pred-verify.png) | **Lab** | Earlier Pred path count check during wasm `from_idx` fix |
+| [diff-verify.png](./diff-verify.png) | **Diff** | Two runs `#5a1b` vs `#841a` · equity overlay · Param Diff filled |
+
+## Earlier capture set
 
 | File | Activity | What it shows |
 | --- | --- | --- |
-| [market.png](./market.png) | **Market** | Watchlist · K-line + BOLL/SMA · ATR/HV subs · Vol Profile (Side) + VP Visible · BUY/SELL markers from active run · Ticker info |
-| [lab.png](./lab.png) | **Lab** | Same as lab-backtest (alias) — templates · params · M6/M8 · Run · chart with markers · AI report |
-| [lab-backtest.png](./lab-backtest.png) | **Lab** | Completed Trend + Vol Target backtest · equity KPIs · chart BUY/SELL overlays · narrative |
-| [lab-tradelog.png](./lab-tradelog.png) | **Lab** | **Trade log** tab with monthly_rebalance BUY/SELL rows |
-| [diff.png](./diff.png) | **Diff** | Two runs selected (`9844` vs `4d91`) · Param Diff tab filled |
+| [market.png](./market.png) | **Market** | Watchlist · K-line + BOLL/SMA · ATR/HV · Vol Profile |
+| [lab.png](./lab.png) / [lab-backtest.png](./lab-backtest.png) | **Lab** | Templates · params · M6/M8 · completed backtest |
+| [lab-tradelog.png](./lab-tradelog.png) | **Lab** | Trade log tab with monthly_rebalance BUY/SELL rows |
+| [diff.png](./diff.png) | **Diff** | Earlier two-run Param Diff |
 
 Progress context: [`docs/reports/05-step2-progress.md`](../../reports/05-step2-progress.md).
 
-Embedded elsewhere: repo root [`README.md`](../../../README.md) shows Market / Lab / Diff; Step2 progress report embeds the same set with captions.
+### Known gap
+
+Trade-log **axis markers** stay at 0 when Market K-line is on live/recent bars while the active run’s `trade_logs` are fixture dates (2020–2022). Table + Logs checkbox still work; chart↔table scroll needs overlapping bar timestamps.

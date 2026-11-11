@@ -14,6 +14,7 @@ from quant_lab_api.main import app
 from quant_lab_api.services.market_data import build_overview, search_tickers
 from quant_lab_api.services.overlays.markers_adapter import MarkersAdapter
 from quant_lab_api.services.overlays.fixture_provider import FixtureProvider
+from quant_lab_api.services.overlays.regime_provider import RegimeProvider
 from quant_lab_api.models import Run
 
 
@@ -95,6 +96,18 @@ def test_markers_adapter_and_fixture_overlay():
     assert "upper_1sigma" in band["band_series"][0]
 
 
+def test_regime_provider_spans():
+    run = Run(id="dummy", name="t", params={}, summary={})
+    ov = RegimeProvider().collect(run, symbol="SPY")
+    preds = ov.get("prediction_overlays") or []
+    assert preds, "expected HV regime demo overlay"
+    reg = preds[0]
+    assert reg["render_type"] == "regime_bg"
+    assert reg["target_pane"] == "main_price"
+    assert reg["regime_spans"]
+    assert "start_time" in reg["regime_spans"][0]
+
+
 def test_ready_features_step2():
     c = _client()
     r = c.get("/ready")
@@ -132,9 +145,14 @@ def test_pipeline_overlays_and_compare():
 
     ov = c.get(f"/runs/{body['id']}/overlays", params={"symbol": "SPY"}, headers=headers)
     assert ov.status_code == 200
-    pred_ids = [p["id"] for p in ov.json().get("prediction_overlays") or []]
+    preds = ov.json().get("prediction_overlays") or []
+    pred_ids = [p["id"] for p in preds]
     assert "m6_mc_equity_band" in pred_ids
+    m6 = next(p for p in preds if p["id"] == "m6_mc_equity_band")
+    assert m6["target_pane"] == "equity_chart"
     assert any(x.startswith("m8_") for x in pred_ids)
+    assert any(p["target_pane"] == "sub_volatility" for p in preds if p["id"].startswith("m8_"))
+    assert any(p.get("render_type") == "regime_bg" for p in preds)
 
     r2 = c.post(
         "/runs/from-template",

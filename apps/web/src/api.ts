@@ -162,8 +162,26 @@ export type PredictionOverlay = {
   model_source: string;
   target_pane: string;
   render_type: string;
-  band_series?: Array<Record<string, unknown>>;
-  line_series?: Array<Record<string, unknown>>;
+  style?: {
+    primary_color?: string;
+    fill_opacity?: number;
+    line_style?: "solid" | "dashed";
+  };
+  band_series?: Array<{
+    timestamp: string;
+    mid?: number;
+    upper_1sigma: number;
+    lower_1sigma: number;
+    upper_2sigma?: number;
+    lower_2sigma?: number;
+  }>;
+  line_series?: Array<{ timestamp: string; value: number; label?: string }>;
+  regime_spans?: Array<{
+    start_time: string;
+    end_time: string;
+    regime_type: string;
+    label: string;
+  }>;
 };
 
 export type Overlays = {

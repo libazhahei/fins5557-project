@@ -65,7 +65,8 @@ class M6McProvider:
             "id": "m6_mc_equity_band",
             "name": "Monte Carlo Equity Band (M6)",
             "model_source": "M6_MC",
-            "target_pane": "main_price",
+            # Equity-scale band — not drawn on price K-line (see KlineChartCanvas filter).
+            "target_pane": "equity_chart",
             "render_type": "band",
             "style": {"primary_color": "#2563eb", "fill_opacity": 0.12, "line_style": "dashed"},
             "band_series": band,

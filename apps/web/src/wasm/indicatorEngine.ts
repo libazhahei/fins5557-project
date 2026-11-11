@@ -24,7 +24,9 @@ async function computeOnMainThread(payload: IndicatorRequest): Promise<Indicator
   ]);
   let result = computeWickra(wickra, payload);
   const customIds = payload.enabled.filter((id) =>
-    ["kalman", "smc", "chan", "mc"].includes(id),
+    ["kalman", "smc", "chan", "mc", "arima", "hv_ewma", "wasm_arima", "wasm_hv_ewma"].includes(
+      id,
+    ),
   );
   if (customIds.length) {
     try {
@@ -41,7 +43,9 @@ async function computeOnMainThread(payload: IndicatorRequest): Promise<Indicator
         })),
         enabled: customIds,
         params: payload.params || {},
-        view: payload.view || null,
+        view: payload.view
+          ? { from_idx: payload.view.fromIdx, to_idx: payload.view.toIdx }
+          : null,
         benchmark_closes: payload.benchmarkCloses || null,
       }) as IndicatorResult;
       result = {
@@ -165,7 +169,16 @@ export function useIndicatorEngine() {
         // If worker returns empty series while indicators requested, fall back once
         pending.current.set(id, (r) => {
           const want = full.enabled.some((x) => !["vol"].includes(x));
-          if (want && !(r.series?.length || r.profiles?.length || r.structures?.length || r.bands?.length)) {
+          const wantPredBands = full.enabled.some((x) =>
+            ["arima", "hv_ewma", "mc", "wasm_arima", "wasm_hv_ewma"].includes(x),
+          );
+          const missingPred =
+            wantPredBands && !(r.bands && r.bands.length);
+          if (
+            missingPred ||
+            (want &&
+              !(r.series?.length || r.profiles?.length || r.structures?.length || r.bands?.length))
+          ) {
             useWorker.current = false;
             runMain();
           }

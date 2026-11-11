@@ -112,10 +112,11 @@ pub fn price_band(
         target_pane: "main_price".into(),
         render_type: "band".into(),
         band_series: series,
+        line_series: vec![],
     })
 }
 
-fn format_date(unix: i64) -> String {
+pub fn format_date(unix: i64) -> String {
     // YYYY-MM-DD approx via days since epoch (UTC)
     let days = unix.div_euclid(86_400);
     let z = days + 719_468;

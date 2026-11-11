@@ -48,7 +48,9 @@ export type IndicatorId =
   | "kalman"
   | "smc"
   | "chan"
-  | "mc";
+  | "mc"
+  | "arima"
+  | "hv_ewma";
 
 export type IndicatorGroup = "low" | "mid" | "high";
 

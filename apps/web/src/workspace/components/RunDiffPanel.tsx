@@ -90,9 +90,17 @@ export function RunDiffPanel({ compareIds }: Props) {
           </tbody>
         </table>
       </section>
-      <p className="text-[10px] text-zinc-500">
-        {t("workspace.diffEquityHint")} ({(data.equity_aligned || []).length} pts)
-      </p>
+      <section>
+        <h3 className="font-semibold">{t("workspace.diffEquity")}</h3>
+        <p className="mt-1 text-[10px] text-zinc-500">{t("workspace.diffEquityVsKline")}</p>
+        {(data.equity_aligned || []).length === 0 ? (
+          <p className="mt-1 text-[10px] text-amber-700">{t("workspace.diffEquityEmpty")}</p>
+        ) : (
+          <p className="mt-1 text-[10px] text-zinc-500">
+            {t("workspace.diffEquityHint")} ({data.equity_aligned.length} pts)
+          </p>
+        )}
+      </section>
     </div>
   );
 }

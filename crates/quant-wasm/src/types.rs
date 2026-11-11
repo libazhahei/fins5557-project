@@ -87,13 +87,24 @@ pub struct BandPoint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinePoint {
+    pub timestamp: String,
+    pub value: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BandOut {
     pub id: String,
     pub name: String,
     pub model_source: String,
     pub target_pane: String,
     pub render_type: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub band_series: Vec<BandPoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub line_series: Vec<LinePoint>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

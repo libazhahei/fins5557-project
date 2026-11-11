@@ -9,6 +9,7 @@ from quant_lab_api.services.overlays.fixture_provider import FixtureProvider
 from quant_lab_api.services.overlays.m6_provider import M6McProvider
 from quant_lab_api.services.overlays.m8_provider import M8RvProvider
 from quant_lab_api.services.overlays.markers_adapter import MarkersAdapter
+from quant_lab_api.services.overlays.regime_provider import RegimeProvider
 
 
 class OverlayRegistry:
@@ -17,6 +18,7 @@ class OverlayRegistry:
             MarkersAdapter(),
             M6McProvider(),
             M8RvProvider(),
+            RegimeProvider(),
             FixtureProvider(),
         ]
 

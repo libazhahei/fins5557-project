@@ -39,7 +39,9 @@ async function runCompute(payload: IndicatorRequest): Promise<IndicatorResult> {
   let result = computeWickra(W, payload);
 
   const customIds = payload.enabled.filter((id) =>
-    ["kalman", "smc", "chan", "mc"].includes(id),
+    ["kalman", "smc", "chan", "mc", "arima", "hv_ewma", "wasm_arima", "wasm_hv_ewma"].includes(
+      id,
+    ),
   );
   if (customIds.length) {
     try {
@@ -55,10 +57,20 @@ async function runCompute(payload: IndicatorRequest): Promise<IndicatorResult> {
         })),
         enabled: customIds,
         params: payload.params || {},
-        view: payload.view || null,
+        view: payload.view
+          ? { from_idx: payload.view.fromIdx, to_idx: payload.view.toIdx }
+          : null,
         benchmark_closes: payload.benchmarkCloses || null,
       }) as IndicatorResult;
       result = mergeResults(result, resp || {});
+      if (
+        customIds.some((id) =>
+          ["arima", "hv_ewma", "wasm_arima", "wasm_hv_ewma", "mc"].includes(id),
+        ) &&
+        !(resp?.bands && resp.bands.length)
+      ) {
+        console.warn("quant-wasm returned no bands for", customIds);
+      }
     } catch (err) {
       console.error("quant-wasm compute failed", err);
     }

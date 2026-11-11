@@ -184,6 +184,7 @@ export function WorkspacePage() {
         fromIdx: Math.max(0, bars.length - 80),
         toIdx: bars.length - 1,
       } satisfies VpView);
+    const predIds = showPredictions ? (["arima", "hv_ewma"] as const) : [];
     indicators.compute({
       bars: bars.map((b) => ({
         time: b.time,
@@ -194,7 +195,7 @@ export function WorkspacePage() {
         volume: b.volume,
       })),
       view,
-      enabled: indicators.enabled,
+      enabled: [...new Set([...indicators.enabled, ...predIds])],
     });
   }, [
     marketBars.data?.bars,
@@ -203,6 +204,7 @@ export function WorkspacePage() {
     symbol,
     chartTimeframe,
     vpView,
+    showPredictions,
   ]);
 
   useEffect(() => {

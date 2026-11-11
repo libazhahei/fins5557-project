@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   dispose,
   init,
@@ -8,7 +8,14 @@ import {
   type KLineData,
 } from "klinecharts";
 import { api } from "../../api";
-import type { IndicatorResult, StructureOut } from "../../wasm/types";
+import type { IndicatorResult, SeriesOut, StructureOut } from "../../wasm/types";
+import {
+  isChartPredOverlay,
+  projectOverlays,
+  projectTradeMarkers,
+  timestampToUnix,
+  type OverlayGeometry,
+} from "../lib/predictionOverlayRender";
 import { groupSeriesIntoPanes } from "../lib/seriesPaneGroups";
 import type { ChartTradeLogMarker, PredictionOverlay } from "../types";
 import { VolumeProfilePane } from "./VolumeProfilePane";
@@ -29,6 +36,14 @@ type ChartApi = {
   getVisibleRange?: () => { from: number; to: number; realFrom?: number; realTo?: number };
   subscribeAction?: (type: string, cb: (...args: unknown[]) => void) => void;
   unsubscribeAction?: (type: string, cb?: (...args: unknown[]) => void) => void;
+  convertToPixel?: (
+    data: { timestamp?: number; dataIndex?: number; value?: number },
+    paneId?: string,
+  ) => { x: number; y: number } | null;
+  scrollToTimestamp?: (timestamp: number, animationDuration?: number) => void;
+  scrollToDataIndex?: (index: number, animationDuration?: number) => void;
+  executeAction?: (type: string, data?: unknown) => void;
+  getDataList?: () => KLineData[];
 };
 
 /** Sub-pane height that keeps candle + all subs inside the host. */
@@ -204,8 +219,14 @@ export function KlineChartCanvas({
   const chartRef = useRef<ChartApi | null>(null);
   const saveTimer = useRef<number | null>(null);
   const paneIdsRef = useRef<string[]>([]);
+  const volPaneIdRef = useRef<string | null>(null);
   const onVisibleRangeChangeRef = useRef(onVisibleRangeChange);
   const [status, setStatus] = useState("");
+  const [overlayGeoms, setOverlayGeoms] = useState<OverlayGeometry[]>([]);
+  const [markerPixels, setMarkerPixels] = useState<
+    Array<{ id: string; x: number; y: number; action: string; label: string; log: ChartTradeLogMarker }>
+  >([]);
+  const [overlayTick, setOverlayTick] = useState(0);
 
   useEffect(() => {
     onVisibleRangeChangeRef.current = onVisibleRangeChange;
@@ -226,14 +247,20 @@ export function KlineChartCanvas({
       const range = chart.getVisibleRange?.();
       if (!range) return;
       onVisibleRangeChangeRef.current?.({ from: range.from, to: range.to });
+      setOverlayTick((n) => n + 1);
     };
     chart.subscribeAction?.("onVisibleRangeChange", emitVisible);
+    chart.subscribeAction?.("onScroll", emitVisible);
+    chart.subscribeAction?.("onZoom", emitVisible);
     const ro = new ResizeObserver(() => {
       chart.resize?.();
+      setOverlayTick((n) => n + 1);
     });
     ro.observe(host);
     return () => {
       chart.unsubscribeAction?.("onVisibleRangeChange", emitVisible);
+      chart.unsubscribeAction?.("onScroll", emitVisible);
+      chart.unsubscribeAction?.("onZoom", emitVisible);
       ro.disconnect();
       dispose(host);
       chartRef.current = null;
@@ -300,11 +327,53 @@ export function KlineChartCanvas({
       .catch(() => undefined);
   }, [symbol]);
 
+  const chartPredictions = useMemo(() => {
+    const apiPreds = (predictions || []).filter(isChartPredOverlay);
+    const wasmPreds = ((indicatorResult?.bands || []) as PredictionOverlay[]).filter(
+      isChartPredOverlay,
+    );
+    if (!showPredictions) return [] as PredictionOverlay[];
+    // Prefer backend M8 over wasm HV when both present on vol pane
+    const hasM8Vol = apiPreds.some(
+      (p) => p.target_pane === "sub_volatility" && p.model_source?.includes("M8"),
+    );
+    const wasmFiltered = hasM8Vol
+      ? wasmPreds.filter((p) => p.target_pane !== "sub_volatility")
+      : wasmPreds;
+    return [...apiPreds, ...wasmFiltered];
+  }, [predictions, indicatorResult?.bands, showPredictions]);
+
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !bars.length) return;
 
-    const series = indicatorResult?.series || [];
+    const series: SeriesOut[] = [...(indicatorResult?.series || [])];
+    volPaneIdRef.current = null;
+
+    // Always ensure a dedicated volatility Pred pane so convertToPixel has a Y scale
+    const needVolPane = chartPredictions.some((p) => p.target_pane === "sub_volatility");
+    if (needVolPane && !series.some((s) => s.id === "pred_vol")) {
+      const line = chartPredictions.find(
+        (p) => p.target_pane === "sub_volatility" && (p.line_series?.length || p.band_series?.length),
+      );
+      const values: SeriesOut["values"] = [];
+      if (line?.line_series?.length) {
+        for (const pt of line.line_series) {
+          const unix = timestampToUnix(pt.timestamp);
+          if (unix == null) continue;
+          values.push({ time: unix, value: pt.value });
+        }
+      } else if (line?.band_series?.length) {
+        for (const pt of line.band_series) {
+          const unix = timestampToUnix(pt.timestamp);
+          if (unix == null || pt.mid == null) continue;
+          values.push({ time: unix, value: pt.mid });
+        }
+      }
+      if (values.length) {
+        series.push({ id: "pred_vol", pane: "sub_volatility", values });
+      }
+    }
 
     for (const key of paneIdsRef.current) {
       try {
@@ -356,10 +425,13 @@ export function KlineChartCanvas({
       }
 
       const paneId = `ql_${g.key.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+      const isVolPane =
+        g.key.includes("pred_vol") ||
+        g.series.some((s) => s.pane === "sub_volatility" || s.id === "pred_vol" || s.id.startsWith("hv"));
       g.series.forEach((s, idx) => {
         const extendData = toValueMap(s.id, series);
         if (!Object.keys(extendData).length) return;
-        const color = MAIN_COLORS[s.id] || "#71717a";
+        const color = MAIN_COLORS[s.id] || (s.id === "pred_vol" ? "#b45309" : "#71717a");
         try {
           const name = ensureSeriesIndicator(s.id, "sub");
           chart.createIndicator(
@@ -377,7 +449,10 @@ export function KlineChartCanvas({
               axisOptions: { scrollZoomEnabled: true },
             },
           );
-          if (idx === 0) paneIdsRef.current.push(paneId);
+          if (idx === 0) {
+            paneIdsRef.current.push(paneId);
+            if (isVolPane) volPaneIdRef.current = paneId;
+          }
           created += 1;
         } catch (err) {
           console.warn("createIndicator failed", s.id, err);
@@ -403,23 +478,84 @@ export function KlineChartCanvas({
     window.setTimeout(() => {
       chart.resize?.();
       chart.applyNewData(toKline(bars));
+      setOverlayTick((n) => n + 1);
     }, 0);
+    const predN = chartPredictions.length;
     setStatus(
       series.length
-        ? `WASM ${series.length} series · ${created} drawn · ${subCount} panes · h${subHeight}`
-        : "WASM 0 series",
+        ? `WASM ${series.length} series · ${created} drawn · ${subCount} panes · h${subHeight} · Pred ${predN}`
+        : `WASM 0 series · Pred ${predN}`,
     );
-  }, [indicatorResult, bars]);
+  }, [indicatorResult, bars, chartPredictions]);
 
-  const markerLayer = showTradeLogs
-    ? tradeLogs.filter((l) => !symbol || l.symbol === symbol || !l.symbol)
-    : [];
+  // Project Pred + trade markers into SVG pixels
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !bars.length || !chart.convertToPixel) {
+      setOverlayGeoms([]);
+      setMarkerPixels([]);
+      return;
+    }
+    const convert = (
+      data: { timestamp?: number; dataIndex?: number; value?: number },
+      paneId?: string,
+    ) => chart.convertToPixel?.(data, paneId || "candle_pane") ?? null;
+
+    const geoms = projectOverlays({
+      overlays: chartPredictions,
+      bars,
+      convert,
+      mainPaneId: "candle_pane",
+      volPaneId: volPaneIdRef.current,
+      hostWidth: hostRef.current?.clientWidth || 800,
+      hostHeight: hostRef.current?.clientHeight || 400,
+    });
+    setOverlayGeoms(geoms);
+
+    if (showTradeLogs) {
+      setMarkerPixels(
+        projectTradeMarkers({
+          logs: tradeLogs,
+          symbol,
+          bars,
+          convert,
+          mainPaneId: "candle_pane",
+        }),
+      );
+    } else {
+      setMarkerPixels([]);
+    }
+  }, [
+    bars,
+    chartPredictions,
+    tradeLogs,
+    showTradeLogs,
+    symbol,
+    overlayTick,
+    indicatorResult,
+  ]);
+
+  // Table → chart: scroll + crosshair when selectedLogId changes
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !selectedLogId || !bars.length) return;
+    const log = tradeLogs.find((l) => l.id === selectedLogId);
+    if (!log) return;
+    const unix = timestampToUnix(log.timestamp);
+    if (unix == null) return;
+    try {
+      chart.scrollToTimestamp?.(unix * 1000, 200);
+    } catch {
+      const idx = bars.findIndex((b) => {
+        const t = b.time > 1e12 ? Math.floor(b.time / 1000) : b.time;
+        return Math.abs(t - unix) < 86400;
+      });
+      if (idx >= 0) chart.scrollToDataIndex?.(idx, 200);
+    }
+    setOverlayTick((n) => n + 1);
+  }, [selectedLogId, tradeLogs, bars]);
 
   const structures: StructureOut[] = indicatorResult?.structures || [];
-  const wasmBands = (indicatorResult?.bands || []) as PredictionOverlay[];
-  const allBands = showPredictions
-    ? [...(predictions || []).filter((p) => p.render_type === "band"), ...wasmBands]
-    : wasmBands;
 
   const lastBar = bars.length ? bars[bars.length - 1] : null;
   const overlayLegend = (indicatorResult?.series || [])
@@ -459,25 +595,84 @@ export function KlineChartCanvas({
             {status}
           </div>
         )}
-        {markerLayer.length > 0 && (
-          <div className="pointer-events-none absolute inset-x-0 top-5 flex flex-wrap gap-1 px-1">
-            {markerLayer.slice(0, 12).map((log) => (
-              <button
-                key={log.id}
-                type="button"
-                className={`pointer-events-auto rounded px-1 py-0.5 text-[9px] ${
-                  selectedLogId === log.id
-                    ? "bg-blue-600 text-white"
-                    : log.action === "SELL"
-                      ? "bg-red-100 text-red-800"
-                      : "bg-emerald-100 text-emerald-800"
-                }`}
-                title={log.reason_detail}
-                onClick={() => onSelectLog?.(log.id)}
-              >
-                {log.timestamp.slice(5)} {log.action} {log.reason_short.slice(0, 24)}
-              </button>
-            ))}
+        <svg
+          className="pointer-events-none absolute inset-0 z-[5] h-full w-full overflow-visible"
+          aria-hidden
+        >
+          {overlayGeoms.flatMap((g) =>
+            (g.regimeRects || []).map((r, i) => (
+              <rect
+                key={`${g.id}-r-${i}`}
+                x={r.x}
+                y={0}
+                width={r.width}
+                height="100%"
+                fill={r.tone}
+              />
+            )),
+          )}
+          {overlayGeoms.map((g) =>
+            g.bandPath ? (
+              <path
+                key={`${g.id}-band`}
+                d={g.bandPath}
+                fill={g.color}
+                fillOpacity={g.fillOpacity}
+                stroke="none"
+              />
+            ) : null,
+          )}
+          {overlayGeoms.map((g) =>
+            g.midPath ? (
+              <path
+                key={`${g.id}-mid`}
+                d={g.midPath}
+                fill="none"
+                stroke={g.color}
+                strokeWidth={1.25}
+                strokeDasharray="4 3"
+              />
+            ) : null,
+          )}
+          {overlayGeoms.map((g) =>
+            g.linePath ? (
+              <path
+                key={`${g.id}-line`}
+                d={g.linePath}
+                fill="none"
+                stroke={g.color}
+                strokeWidth={1.5}
+              />
+            ) : null,
+          )}
+        </svg>
+        {markerPixels.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            className={`absolute z-[6] -translate-x-1/2 -translate-y-1/2 rounded-full px-1.5 py-0.5 text-[9px] font-semibold shadow ${
+              selectedLogId === m.id
+                ? "bg-blue-600 text-white ring-2 ring-blue-300"
+                : m.action === "SELL"
+                  ? "bg-red-500 text-white"
+                  : "bg-emerald-600 text-white"
+            }`}
+            style={{ left: m.x, top: m.y }}
+            title={`${m.log.timestamp} ${m.log.action}: ${m.log.reason_detail}`}
+            onClick={() => onSelectLog?.(m.id)}
+          >
+            {m.label}
+          </button>
+        ))}
+        {showPredictions && overlayGeoms.length > 0 && (
+          <div className="pointer-events-none absolute bottom-2 right-2 z-10 max-w-[45%] rounded bg-white/90 px-1.5 py-0.5 text-[9px] text-zinc-700 shadow-sm">
+            <span className="font-semibold">Pred</span>{" "}
+            <span className="text-zinc-500">research sketch</span>
+            {" · "}
+            {overlayGeoms
+              .slice(0, 3)
+              .map((g) => g.name.replace(/\s*\(.*/, ""))
+              .join(" · ")}
           </div>
         )}
         {structures.length > 0 && (
@@ -493,23 +688,6 @@ export function KlineChartCanvas({
             ))}
           </div>
         )}
-        {allBands
-          .filter((p) => p.target_pane === "main_price")
-          .slice(0, 2)
-          .map((p) => {
-            const last = p.band_series?.[p.band_series.length - 1];
-            if (!last) return null;
-            return (
-              <div
-                key={p.id}
-                className="pointer-events-none absolute bottom-2 right-2 rounded bg-blue-600/80 px-1.5 py-0.5 text-[9px] text-white"
-                title={`${p.name} mid=${last.mid}`}
-              >
-                {p.name}
-                {last.mid != null ? ` · mid ${last.mid.toFixed(2)}` : ""}
-              </div>
-            );
-          })}
       </div>
       {vpSide && <VolumeProfilePane profile={vp} layout="side" />}
       </div>

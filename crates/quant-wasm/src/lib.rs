@@ -6,7 +6,9 @@
 //! - MC: packages/quant block_bootstrap_paths
 //! - Chan: Vespa314/chan.py subset (fractal → bi → zhongshu)
 
+mod arima;
 mod chan;
+mod hv_ewma;
 mod kalman;
 mod mc;
 mod smc;
@@ -54,6 +56,20 @@ pub fn compute_inner(req: &ComputeRequest) -> ComputeResponse {
             out.bands.push(band);
         }
     }
+    if has("arima") || has("wasm_arima") {
+        let horizon = req.param_usize("arima_horizon").unwrap_or(5);
+        let lookback = req.param_usize("arima_lookback").unwrap_or(120);
+        if let Some(band) = arima::price_band(&req.bars, horizon, lookback) {
+            out.bands.push(band);
+        }
+    }
+    if has("hv_ewma") || has("wasm_hv_ewma") {
+        let horizon = req.param_usize("hv_horizon").unwrap_or(5);
+        let window = req.param_usize("hv_window").unwrap_or(20);
+        if let Some(line) = hv_ewma::vol_forecast_line(&req.bars, horizon, window) {
+            out.bands.push(line);
+        }
+    }
     out
 }
 
@@ -81,14 +97,21 @@ mod tests {
     fn compute_kalman_and_mc() {
         let req = ComputeRequest {
             bars: sample_bars(80),
-            enabled: vec!["kalman".into(), "mc".into(), "smc".into(), "chan".into()],
+            enabled: vec![
+                "kalman".into(),
+                "mc".into(),
+                "smc".into(),
+                "chan".into(),
+                "arima".into(),
+                "hv_ewma".into(),
+            ],
             params: Default::default(),
             view: None,
             benchmark_closes: None,
         };
         let resp = compute_inner(&req);
         assert!(!resp.series.is_empty());
-        assert!(!resp.bands.is_empty() || resp.bands.is_empty()); // mc needs enough returns
-        assert!(!resp.structures.is_empty() || resp.structures.is_empty());
+        assert!(resp.bands.iter().any(|b| b.id == "wasm_arima"));
+        assert!(resp.bands.iter().any(|b| b.id == "wasm_hv_ewma"));
     }
 }

@@ -17,6 +17,7 @@
 | 中级 | VWAP±σ、Volume Profile、MFI/CMF、KAMA/SuperTrend/HMA/ALMA、Ichimoku、ADX、Keltner、Donchian | wickra-wasm |
 | 高级 A | 谐波、Hilbert、Hurst、GARCH、RollingCorr、TD Wave | wickra-wasm |
 | 高级 A | 缠论笔/段/中枢、SMC(FVG/BOS/CHoCH)、Kalman、轻量 MC 通道 | quant-wasm |
+| Pred（轻量） | **ARIMA(1,1,0)** 主图价带；**HV/EWMA** 波动率副图 5d 线 | quant-wasm（Pred ON，无需 Run） |
 
 ## 开源参考（quant-wasm）
 
@@ -25,6 +26,7 @@
 | Kalman | [QuantWave Kalman](https://lavs9.github.io/quantwave/guides/indicators/native/kalman_filter/) |
 | SMC | [smart-money-concepts](https://github.com/joshyattridge/smart-money-concepts)、[pyvsmc](https://github.com/Khaymat/pyvsmc) |
 | MC | 本仓 `packages/quant/.../montecarlo.py` `block_bootstrap_paths`；[mc-simulations](https://github.com/engan/mc-simulations) |
+| ARIMA / HV | 手写 ARIMA(1,1,0) + EWMA HV（`arima.rs` / `hv_ewma.rs`）；研究 sketch，非实盘信号 |
 | 缠论 | [chan.py](https://github.com/Vespa314/chan.py) 子集；crates.io `chanlun` 作对照（WASM 安全回退为本仓实现） |
 
 ## 重建 wasm
@@ -44,4 +46,6 @@ cargo test -p quant-wasm
 ## 边界
 
 - 图上轻量 MC（`model_source: wasm_mc`）≠ 后端 M6 权威摘要。
+- 图上 ARIMA / HV/EWMA（`wasm_arima` / `wasm_hv_ewma`）是研究 sketch；后端 M8 RV 有数据时优先生效于波动率副图。
+- 后端 M6 equity band 走 `target_pane: equity_chart`，**不**叠在价格 K 线（量级不同）。
 - Footprint / CVD / Orderbook / 真 TPO：无 Tick/L2，不做。
