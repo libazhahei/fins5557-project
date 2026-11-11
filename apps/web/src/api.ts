@@ -46,7 +46,7 @@ export function getUniverse(): string[] {
   } catch {
     /* ignore */
   }
-  return ["SPY", "QQQ", "IEF", "TLT", "GLD", "SHY"];
+  return ["SPY", "QQQ", "IEF", "TLT", "GLD", "SHY", "AAPL", "MSFT", "NVDA", "GOOG", "TQQQ"];
 }
 
 export function setUniverse(symbols: string[]) {
@@ -97,8 +97,11 @@ export type Ready = {
     mode: string;
     fixture_ok?: boolean;
     fixture_symbols?: string[];
+    live_yahoo?: string;
+    policy?: string;
   };
   llm?: { primary: string; default_provider: string };
+  features?: Record<string, string>;
 };
 
 export type Narrative = {
@@ -141,11 +144,36 @@ export type OverlayMarker = {
   reason: string | null;
 };
 
+export type ChartTradeLogMarker = {
+  id: string;
+  timestamp: string;
+  symbol: string;
+  action: string;
+  price: number;
+  weight_before: number;
+  weight_after: number;
+  reason_short: string;
+  reason_detail: string;
+};
+
+export type PredictionOverlay = {
+  id: string;
+  name: string;
+  model_source: string;
+  target_pane: string;
+  render_type: string;
+  band_series?: Array<Record<string, unknown>>;
+  line_series?: Array<Record<string, unknown>>;
+};
+
 export type Overlays = {
   run_id: string;
   equity: { time: number; value: number }[];
   benchmark_equity: { time: number; value: number }[];
   markers: OverlayMarker[];
+  trade_logs?: ChartTradeLogMarker[];
+  prediction_overlays?: PredictionOverlay[];
+  overlay_sources?: string[];
   mc_paths: unknown[];
   rv_predictions: unknown[];
   summary: Record<string, unknown>;

@@ -1,0 +1,17 @@
+{
+  "name": "quant-wasm",
+  "type": "module",
+  "description": "Browser-side indicator gap crate: Chan structures, SMC, Kalman, light MC",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "quant_wasm_bg.wasm",
+    "quant_wasm.js",
+    "quant_wasm.d.ts"
+  ],
+  "main": "quant_wasm.js",
+  "types": "quant_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

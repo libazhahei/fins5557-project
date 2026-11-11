@@ -1,0 +1,2 @@
+# Keep wasm-pack outputs in tree for web consumers without a local Rust toolchain.
+.DS_Store

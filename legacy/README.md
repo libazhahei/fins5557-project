@@ -1,11 +1,15 @@
-# Legacy Streamlit app
+# Legacy
 
-The previous FINS5557 Streamlit + RV pipeline lives in [`project/`](./project/).
+FINS5557 **Streamlit + realized-volatility (RV) prediction pipeline** archive.
 
-New development targets the monorepo:
+New development targets the Quant Lab monorepo (`apps/*`, `packages/*`, `crates/`). **Do not add features here**; port logic into `packages/quant` instead.
 
-- `apps/web` — React
-- `apps/api` / `apps/worker` / `apps/agent`
-- `packages/quant` — modular M1–M9
+## Asset index
 
-Do not add features here; port logic into `packages/quant` instead.
+See **[`ASSETS.md`](./ASSETS.md)** for the full list (code, old README, optimization notes, `example_runs/`).
+
+| Quick link | |
+| --- | --- |
+| Streamlit app | [`project/`](./project/) |
+| Old pipeline README | [`README-rv-pipeline.md`](./README-rv-pipeline.md) |
+| Teaching-pack optimization | [`OPTIMIZATION.md`](./OPTIMIZATION.md) |

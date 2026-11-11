@@ -104,7 +104,7 @@ make agent  # :8081
 
 | Step | 内容 |
 | --- | --- |
-| 2 | 同屏 Diff、完整 Trade log 联动、MC(M6)/RV(M8) 真跑、设置页 Live Yahoo |
+| 2 | Activity Bar + 看盘/画线 + 标的画像；Trade Log 图上联动；通用预测图层；Run Diff；MC(M6)/RV(M8) 真跑 — 详见 [Step2 规格](../step2-market-workspace-spec.md) |
 | 3 | Medium → DSL 动态解析与策略组装（现仅草稿落库） |
 | 4 | 日频行情 + 16:30 调仓信号引擎（现仅订阅占位页） |
 
@@ -122,4 +122,4 @@ make agent  # :8081
 
 1. 确认本机用 Postgres（`make up-db`）还是 SQLite，稳定起 `make api` + `make web`。  
 2. 在 Workspace 跑一遍模板 → KPI/基准图/解读/改参重跑闭环。  
-3. 按优先级进入 Step 2（对比 Diff + Trade log）或修启动/文档体验。
+3. 按 [Step2 规格](../step2-market-workspace-spec.md) 进入 Step 2（Phase 2.1：Activity Bar + 看盘/画线主链路），或先修启动/文档体验。

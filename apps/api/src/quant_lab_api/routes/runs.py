@@ -89,10 +89,12 @@ def compare_runs(
     id_list = [x.strip() for x in ids.split(",") if x.strip()]
     if len(id_list) < 2:
         raise HTTPException(status_code=400, detail="need at least two ids")
-    runs = []
+    store = get_object_store()
+    runs_out = []
+    equity_map: dict[str, list[dict]] = {}
     for rid in id_list[:5]:
         run = get_owned_run(db, rid, actor)
-        runs.append(
+        runs_out.append(
             {
                 "id": run.id,
                 "name": run.name,
@@ -102,7 +104,46 @@ def compare_runs(
                 "job_spec": run.params,
             }
         )
-    return {"runs": runs}
+        equity_map[run.id] = _equity_series(store, run.equity_uri)
+
+    base = runs_out[0]
+    param_diff = []
+    keys = sorted(
+        set(list((base.get("params") or {}).keys()) + list((runs_out[1].get("params") or {}).keys()))
+    )
+    for key in keys:
+        vals = [r.get("params", {}).get(key) for r in runs_out]
+        if any(v != vals[0] for v in vals[1:]):
+            param_diff.append({"key": key, "values": {r["id"]: r.get("params", {}).get(key) for r in runs_out}})
+
+    kpi_keys = ["total_return", "cagr", "vol", "max_dd", "sharpe", "benchmark_total_return"]
+    kpi_diff = []
+    for k in kpi_keys:
+        row = {"metric": k, "values": {}}
+        for r in runs_out:
+            summary = r.get("summary") or {}
+            row["values"][r["id"]] = summary.get(k)
+        kpi_diff.append(row)
+
+    # Align equity on union of timestamps (forward-fill sparse)
+    all_times = sorted({pt["time"] for series in equity_map.values() for pt in series})
+    aligned = []
+    cursors = {rid: {p["time"]: p["value"] for p in series} for rid, series in equity_map.items()}
+    last_vals = {rid: None for rid in equity_map}
+    for t in all_times:
+        point = {"time": t, "values": {}}
+        for rid in equity_map:
+            if t in cursors[rid]:
+                last_vals[rid] = cursors[rid][t]
+            point["values"][rid] = last_vals[rid]
+        aligned.append(point)
+
+    return {
+        "runs": runs_out,
+        "param_diff": param_diff,
+        "kpi_diff": kpi_diff,
+        "equity_aligned": aligned,
+    }
 
 
 @router.get("")
@@ -132,9 +173,12 @@ def get_run(
 @router.get("/{run_id}/overlays")
 def get_overlays(
     run_id: str,
+    symbol: str | None = Query(None),
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_actor),
 ) -> dict:
+    from quant_lab_api.services.overlays.registry import collect_overlays_for_run
+
     run = get_owned_run(db, run_id, actor)
     store = get_object_store()
     equity = _equity_series(store, run.equity_uri)
@@ -145,7 +189,7 @@ def get_overlays(
             markers = json.loads(store.get(run.markers_uri).decode("utf-8"))
         except Exception:  # noqa: BLE001
             markers = []
-    # Pad marker schema fields
+    # Pad marker schema fields (legacy)
     normalized = []
     for m in markers:
         normalized.append(
@@ -160,13 +204,17 @@ def get_overlays(
                 "reason": m.get("reason"),
             }
         )
+    packed = collect_overlays_for_run(run, symbol=symbol)
     return {
         "run_id": run.id,
         "equity": equity,
         "benchmark_equity": benchmark_equity,
         "markers": normalized,
+        "trade_logs": packed.get("trade_logs") or [],
+        "prediction_overlays": packed.get("prediction_overlays") or [],
+        "overlay_sources": packed.get("sources") or [],
         "mc_paths": [],
-        "rv_predictions": [],
+        "rv_predictions": (run.summary or {}).get("rv_ml") and [(run.summary or {}).get("rv_ml")] or [],
         "summary": run.summary,
         "panel_uri": run.panel_uri,
     }

@@ -11,6 +11,19 @@ from quant_lab.jobs import JobResult, JobSpec, JobType
 from quant_lab.ports import ObjectStore
 
 DEFAULT_TICKERS = ("SPY", "QQQ", "IEF", "TLT", "GLD", "SHY")
+EXTENDED_FIXTURE_TICKERS = (
+    "SPY",
+    "QQQ",
+    "IEF",
+    "TLT",
+    "GLD",
+    "SHY",
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "GOOG",
+    "TQQQ",
+)
 
 
 def fetch_yfinance(

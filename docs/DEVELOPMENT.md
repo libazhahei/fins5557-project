@@ -10,7 +10,7 @@
 | `apps/worker` | Job runner entry |
 | `packages/quant` | M1–M9 quant modules |
 | `packages/contracts` | OpenAPI |
-| `legacy/project` | Old Streamlit app |
+| `legacy/` | Archived Streamlit / RV assets — see `legacy/ASSETS.md` |
 
 ## Models
 

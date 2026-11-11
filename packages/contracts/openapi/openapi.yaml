@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: Quant Lab API
-  version: 0.2.0
+  version: 0.3.0
   description: |
-    Agent-first quant research lab. Step 1 workspace contracts + Step 2–4 stubs.
+    Agent-first quant research lab. Step 2 market workspace + overlays + run compare.
 servers:
   - url: http://localhost:8080
     description: Local api
@@ -109,14 +109,123 @@ paths:
           required: true
           schema:
             type: string
+        - name: symbol
+          in: query
+          schema:
+            type: string
         - $ref: "#/components/parameters/GuestSession"
       responses:
         "200":
-          description: Equity, benchmark, markers, mc/rv stubs
+          description: Equity, benchmark, markers, trade_logs, prediction_overlays
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Overlays"
+  /market/search:
+    get:
+      operationId: marketSearch
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/GuestSession"
+      responses:
+        "200":
+          description: Ticker search results
+  /market/tickers/{symbol}/overview:
+    get:
+      operationId: tickerOverview
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: prefer_live
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/GuestSession"
+      responses:
+        "200":
+          description: TickerOverviewResponse
+  /market/tickers/{symbol}/bars:
+    get:
+      operationId: tickerBars
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: query
+          schema:
+            type: string
+        - name: include_predictions
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - $ref: "#/components/parameters/GuestSession"
+      responses:
+        "200":
+          description: Bars plus trade_logs and prediction_overlays
+  /market/watchlist:
+    get:
+      operationId: getWatchlist
+      parameters:
+        - $ref: "#/components/parameters/GuestSession"
+      responses:
+        "200":
+          description: Watchlist groups
+    put:
+      operationId: putWatchlist
+      parameters:
+        - $ref: "#/components/parameters/GuestSession"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated watchlist
+  /market/drawings/{symbol}:
+    get:
+      operationId: getDrawings
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/GuestSession"
+      responses:
+        "200":
+          description: Drawing overlays JSON
+    put:
+      operationId: putDrawings
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/GuestSession"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Saved drawings
   /runs/{run_id}/subscribe:
     post:
       operationId: subscribeRun
@@ -344,6 +453,18 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Marker"
+        trade_logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartTradeLogMarker"
+        prediction_overlays:
+          type: array
+          items:
+            $ref: "#/components/schemas/PredictionOverlay"
+        overlay_sources:
+          type: array
+          items:
+            type: string
         mc_paths:
           type: array
           items: {}
@@ -355,3 +476,49 @@ components:
         panel_uri:
           type: string
           nullable: true
+    ChartTradeLogMarker:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+        symbol:
+          type: string
+        action:
+          type: string
+        price:
+          type: number
+        weight_before:
+          type: number
+        weight_after:
+          type: number
+        reason_short:
+          type: string
+        reason_detail:
+          type: string
+    PredictionOverlay:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        model_source:
+          type: string
+        target_pane:
+          type: string
+        render_type:
+          type: string
+        band_series:
+          type: array
+          items:
+            type: object
+        line_series:
+          type: array
+          items:
+            type: object
+        regime_spans:
+          type: array
+          items:
+            type: object

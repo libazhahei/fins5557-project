@@ -1,9 +1,12 @@
 # 产品视角报告 · Quant Lab
 
+> **历史快照 · 截至 2026-10-27（Step 2 之前）**  
+> 不代表当前产品表面。请以 [`docs/PRD.md`](../PRD.md) 与 [Step2 进度](./05-step2-progress.md) 为准。
+
 | 项 | 内容 |
 | --- | --- |
 | 日期 | 2026-10-27 |
-| 依据 | `docs/PRD.md`、`design/ia/navigation.md`、当前代码实现 |
+| 依据 | `docs/PRD.md`、`design/ia/navigation.md`、当时代码实现 |
 | 产品一句话 | 给个人研究者与量化入门者的「对话式研究台」：自然语言 → 可运行步骤 → 图表与人话解读 → 改假设再跑 |
 
 ---
@@ -121,7 +124,7 @@ Quant Lab 不是交易终端，也不是纯 Notebook。它把「想法验证」�
 
 仓库同时承载两代叙事：
 
-1. **遗产**：`legacy/` / README 中的 **RV Prediction Pipeline**（波动率体制二分类教学流水线、Streamlit、Optuna 等）— 研究内核与课件资产。  
+1. **遗产**：`legacy/` 中的 **RV Prediction Pipeline**（见 [`legacy/ASSETS.md`](../../legacy/ASSETS.md)；波动率体制二分类教学流水线、Streamlit、Optuna 等）— 研究内核与课件资产。  
 2. **现行产品**：**Quant Lab** — Agent-first 回测研究台；RV/ML 降为 P1 可插拔模块（M8），不再是唯一门面。
 
 产品报告以 Quant Lab 为准；RV 能力作为「进阶实验」保留在路线图中。

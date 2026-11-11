@@ -13,7 +13,24 @@ from quant_lab_api.models import Run
 from quant_lab_api.paths import fixture_prices_dir
 from quant_lab_api.services.jobs import create_job
 
-FIXTURE_SYMBOLS = frozenset({"SPY", "QQQ", "IEF", "TLT", "GLD", "SHY"})
+FIXTURE_SYMBOLS = frozenset(
+    {
+        "SPY",
+        "QQQ",
+        "IEF",
+        "TLT",
+        "GLD",
+        "SHY",
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "GOOG",
+        "TQQQ",
+    }
+)
+
+CORE_ETFS = ("SPY", "QQQ", "IEF", "TLT", "GLD", "SHY")
+DEMO_EQUITIES = ("AAPL", "MSFT", "NVDA", "GOOG", "TQQQ")
 
 
 def _fixture_dir():
@@ -251,19 +268,72 @@ def start_template_run(
     # Refresh run after M5 side-effects
     db.refresh(run)
 
+    mc_metrics: dict[str, Any] = {}
     if enable_mc:
-        steps.append(
-            _trace_step("M6", "montecarlo.run", "not_implemented_in_step1", 0, "enable_mc=true")
+        returns_uri = None
+        for u in bt_job.output_uris or []:
+            if "returns" in u:
+                returns_uri = u
+                break
+        t_mc = time.perf_counter()
+        mc_job = create_job(
+            db,
+            user_id=effective_user_id,
+            guest_session_id=effective_guest,
+            job_type=JobType.MONTE_CARLO.value,
+            params={"returns_uri": returns_uri, "n_paths": 100, "block": 21},
+            input_uris=bt_job.output_uris or [],
+            run_id=run.id,
+            execute_now=execute_now,
         )
+        status = "completed" if mc_job.status == "succeeded" else "failed"
+        steps.append(
+            _trace_step(
+                "M6",
+                "montecarlo.run",
+                status,
+                int((time.perf_counter() - t_mc) * 1000),
+                f"n_paths=100 uri={mc_job.metrics.get('uri')}",
+            )
+        )
+        if mc_job.status == "succeeded":
+            mc_metrics = dict(mc_job.metrics or {})
     else:
         steps.append(_trace_step("M6", "montecarlo.run", "placeholder", 0, "disabled"))
 
     steps.append(_trace_step("M7", "signal.daily", "placeholder", 0, "Step4"))
 
+    rv_metrics: dict[str, Any] = {}
     if enable_rv_ml:
-        steps.append(
-            _trace_step("M8", "rv.ml", "not_implemented_in_step1", 0, "enable_rv_ml=true")
+        t_rv = time.perf_counter()
+        rv_symbol = tickers[0] if tickers else "SPY"
+        rv_job = create_job(
+            db,
+            user_id=effective_user_id,
+            guest_session_id=effective_guest,
+            job_type=JobType.RV_ML.value,
+            params={"panel_uri": panel_uri, "symbol": rv_symbol},
+            input_uris=[panel_uri] if panel_uri else [],
+            run_id=run.id,
+            execute_now=execute_now,
         )
+        status = "completed" if rv_job.status == "succeeded" else "failed"
+        steps.append(
+            _trace_step(
+                "M8",
+                "rv.ml",
+                status,
+                int((time.perf_counter() - t_rv) * 1000),
+                f"symbol={rv_symbol} acc={rv_job.metrics.get('accuracy')}",
+            )
+        )
+        if rv_job.status == "succeeded":
+            rv_metrics = dict(rv_job.metrics or {})
+            # Capture features URI from outputs
+            for u in rv_job.output_uris or []:
+                if "features" in u:
+                    rv_metrics["features_uri"] = u
+                    break
     else:
         steps.append(_trace_step("M8", "rv.ml", "placeholder", 0, "disabled"))
 
@@ -295,9 +365,15 @@ def start_template_run(
     )
 
     db.refresh(run)
-    # Merge narrative from report metrics into summary
+    # Merge narrative + model artifacts into summary
+    summary = dict(run.summary or {})
     if report_job.status == "succeeded" and report_job.metrics.get("narrative"):
-        run.summary = {**run.summary, "narrative": report_job.metrics["narrative"]}
+        summary["narrative"] = report_job.metrics["narrative"]
+    if mc_metrics:
+        summary["mc"] = mc_metrics
+    if rv_metrics:
+        summary["rv_ml"] = rv_metrics
+    run.summary = summary
     run.steps_trace = steps
     if run.status != "failed":
         run.status = "succeeded"

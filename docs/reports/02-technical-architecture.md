@@ -1,5 +1,8 @@
 # 技术视角报告 · Quant Lab
 
+> **历史快照 · 截至 2026-10-27（Step 2 之前）**  
+> 不代表当前架构全貌（后续已有 WASM 指标、Market API、ChartWorkspace 等）。请以 [Step2 进度](./05-step2-progress.md)、[DEVELOPMENT.md](../DEVELOPMENT.md) 为准。
+
 | 项 | 内容 |
 | --- | --- |
 | 日期 | 2026-10-27 |
@@ -129,7 +132,7 @@ legacy/ — 原 Streamlit RV 教学应用
 
 - **目标**：Cloud Run 三服务（api / agent / worker）+ Secret +（可选）Cloud SQL/GCS。  
 - **现状风险（README 历史部署笔记）**：旧一体部署在 Cloud Run 2CPU/2GB 上出现冷启动清 workspace、OOM；新架构意图是拆服务与对象持久化，但 **GCP 切换演练（phase5）仍在路线图**。  
-- 遗产优化文档 `OPTIMIZATION.md` 主要服务 **旧 Streamlit/RV 预计算包**；新 Lab 应以 Job 产物 URI + 对象存储缓存为准，避免两套缓存语义混用。
+- 遗产优化文档 [`legacy/OPTIMIZATION.md`](../../legacy/OPTIMIZATION.md) 主要服务 **旧 Streamlit/RV 预计算包**；新 Lab 应以 Job 产物 URI + 对象存储缓存为准，避免两套缓存语义混用。
 
 ---
 

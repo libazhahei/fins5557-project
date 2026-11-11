@@ -18,6 +18,75 @@ vi.mock("react-resizable-panels", () => {
   };
 });
 
+vi.mock("klinecharts", () => ({
+  init: () => ({
+    applyNewData: () => undefined,
+    createIndicator: () => undefined,
+    removeIndicator: () => undefined,
+    createOverlay: () => undefined,
+    getOverlays: () => [],
+    subscribeAction: () => undefined,
+  }),
+  dispose: () => undefined,
+}));
+
+vi.mock("lightweight-charts", () => ({
+  ColorType: { Solid: 0 },
+  LineSeries: "Line",
+  CandlestickSeries: "Candle",
+  createChart: () => ({
+    addSeries: () => ({ setData: () => undefined }),
+    timeScale: () => ({ fitContent: () => undefined }),
+    applyOptions: () => undefined,
+    remove: () => undefined,
+  }),
+  createSeriesMarkers: () => undefined,
+}));
+
+vi.mock("./workspace/components/KlineChartCanvas", () => ({
+  KlineChartCanvas: () => <div data-testid="kline-stub" />,
+}));
+
+vi.mock("./workspace/components/ChartWorkspace", () => ({
+  DEFAULT_CHART_FEATURES: {
+    timeframe: true,
+    drawing: true,
+    indicators: true,
+    subPanes: true,
+    legend: true,
+    volumeProfile: true,
+  },
+  ChartWorkspace: () => <div data-testid="kline-stub" />,
+}));
+
+vi.mock("./workspace/components/EquityBenchmarkChart", () => ({
+  EquityBenchmarkChart: () => <div data-testid="equity-stub" />,
+}));
+
+vi.mock("./wasm/indicatorEngine", () => ({
+  useIndicatorEngine: () => ({
+    ready: true,
+    enabled: ["boll", "sma", "atr", "hv", "vp"],
+    result: { series: [], profiles: [], structures: [], bands: [], scalars: {} },
+    error: null,
+    compute: () => undefined,
+    toggle: () => undefined,
+    setAll: () => undefined,
+  }),
+}));
+
+class WorkerStub {
+  onmessage: ((ev: MessageEvent) => void) | null = null;
+  onerror: ((ev: ErrorEvent) => void) | null = null;
+  postMessage() {
+    /* no-op */
+  }
+  terminate() {
+    /* no-op */
+  }
+}
+vi.stubGlobal("Worker", WorkerStub);
+
 import { App } from "./App";
 
 describe("App routing", () => {

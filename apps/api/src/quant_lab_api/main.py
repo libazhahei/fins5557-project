@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from quant_lab_api import __version__
 from quant_lab_api.db import init_db
-from quant_lab_api.routes import agent_proxy, auth, bars, ideas, jobs, runs, signals
+from quant_lab_api.routes import agent_proxy, auth, bars, ideas, jobs, market, runs, signals
+from quant_lab_api.services.market_data import yahoo_available
 from quant_lab_api.services.pipeline import FIXTURE_SYMBOLS
 from quant_lab_api.settings import get_settings
 
@@ -35,6 +36,7 @@ app.include_router(auth.router)
 app.include_router(jobs.router)
 app.include_router(runs.router)
 app.include_router(bars.router)
+app.include_router(market.router)
 app.include_router(agent_proxy.router)
 app.include_router(ideas.router)
 app.include_router(signals.router)
@@ -71,7 +73,8 @@ def ready() -> dict:
             "fixture_dir": str(fixtures),
             "fixture_symbols": sorted(FIXTURE_SYMBOLS),
             "fixture_ok": fixtures_ok,
-            "live_yahoo": "not_implemented_in_step1",
+            "live_yahoo": "available" if yahoo_available() else "unavailable",
+            "policy": "fixture_first_yahoo_optional",
         },
         "llm": {
             "primary": settings.llm_primary_model,
@@ -80,10 +83,11 @@ def ready() -> dict:
             "user_key_passthrough": True,
         },
         "features": {
-            "enable_mc": "stub",
-            "enable_rv_ml": "stub",
+            "enable_mc": "wired",
+            "enable_rv_ml": "wired",
             "ideas_dsl": "draft_only",
             "daily_signals": "stub",
+            "market_workspace": "step2",
         },
     }
 

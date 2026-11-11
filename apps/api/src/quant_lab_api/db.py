@@ -46,24 +46,26 @@ def reset_engine() -> None:
     SessionLocal = None
 
 
-def _sqlite_add_missing_columns(eng: Engine) -> None:
-    """Best-effort ALTER for Step1 schema additions when create_all is a no-op."""
+def _add_missing_columns(eng: Engine) -> None:
+    """Best-effort ALTER for Step1/2 schema additions when create_all is a no-op."""
     from sqlalchemy import inspect, text
 
-    insp = inspect(eng)
+    dialect = eng.dialect.name
+    bool_default = "BOOLEAN DEFAULT FALSE" if dialect == "postgresql" else "BOOLEAN DEFAULT 0"
     wanted: dict[str, list[tuple[str, str]]] = {
         "runs": [
             ("guest_session_id", "VARCHAR(64)"),
             ("steps_trace", "JSON"),
             ("benchmark_uri", "VARCHAR(512)"),
             ("markers_uri", "VARCHAR(512)"),
-            ("is_subscribed_daily", "BOOLEAN DEFAULT 0"),
+            ("is_subscribed_daily", bool_default),
             ("last_target_weights", "JSON"),
         ],
         "jobs": [
             ("guest_session_id", "VARCHAR(64)"),
         ],
     }
+    insp = inspect(eng)
     with eng.begin() as conn:
         for table, cols in wanted.items():
             if table not in insp.get_table_names():
@@ -73,6 +75,16 @@ def _sqlite_add_missing_columns(eng: Engine) -> None:
                 if name in existing:
                     continue
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+            if dialect == "postgresql" and "guest_session_id" in {c[0] for c in cols}:
+                # Refresh inspector after alters for index create
+                pass
+        # Optional indexes (ignore if already exist)
+        if dialect == "postgresql":
+            for stmt in (
+                "CREATE INDEX IF NOT EXISTS ix_runs_guest_session_id ON runs (guest_session_id)",
+                "CREATE INDEX IF NOT EXISTS ix_jobs_guest_session_id ON jobs (guest_session_id)",
+            ):
+                conn.execute(text(stmt))
 
 
 GUEST_USERNAME = "__guest__"
@@ -103,8 +115,7 @@ def init_db() -> None:
 
     eng = get_engine()
     Base.metadata.create_all(bind=eng)
-    if str(eng.url).startswith("sqlite"):
-        _sqlite_add_missing_columns(eng)
+    _add_missing_columns(eng)
     ensure_guest_user()
 
 

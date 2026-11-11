@@ -1,19 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
-import {
-  api,
-  getToken,
-  type OverlayMarker,
-  type Overlays,
-  type Run,
-} from "../api";
+import { api, getToken, type Overlays, type Ready, type Run } from "../api";
 import { AppShell } from "../components/Shell";
-import { ChartPanel, type Candle } from "../components/ChartPanel";
-import { DEFAULT_FORM, type RunFormState } from "./types";
-import type { ReactNode } from "react";
+import { useIndicatorEngine } from "../wasm/indicatorEngine";
+import { ActivityBar } from "./components/ActivityBar";
+import {
+  ChartWorkspace,
+  DEFAULT_CHART_FEATURES,
+  type ChartTimeframe,
+} from "./components/ChartWorkspace";
+import { EquityBenchmarkChart } from "./components/EquityBenchmarkChart";
+import { PipelineBar } from "./components/PipelineBar";
+import { RightInspector } from "./components/RightInspector";
+import { StrategyLabPanel } from "./components/StrategyLabPanel";
+import { WatchlistPanel } from "./components/WatchlistPanel";
+import { resampleBarsToWeekly } from "./lib/resampleBars";
+import type { VpView } from "./lib/vpWindow";
+import {
+  DEFAULT_FORM,
+  type ActivityMode,
+  type ChartTradeLogMarker,
+  type PredictionOverlay,
+  type RightTab,
+  type RunFormState,
+  type TickerOverview,
+} from "./types";
 
 function pct(v: unknown): string {
   if (v == null || Number.isNaN(Number(v))) return "—";
@@ -36,6 +50,30 @@ function applyPatch(form: RunFormState, patch: Record<string, unknown>): RunForm
   return next;
 }
 
+function Kpi({
+  label,
+  value,
+  vs,
+  vsLabel,
+}: {
+  label: string;
+  value: string;
+  vs?: string;
+  vsLabel?: string;
+}) {
+  return (
+    <div className="rounded border border-zinc-200 bg-white px-1.5 py-1">
+      <div className="text-[9px] text-zinc-500">{label}</div>
+      <div className="text-[15px] font-bold leading-tight">{value}</div>
+      {vs != null && (
+        <div className="text-[9px] text-zinc-500">
+          {vsLabel}: {vs}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WorkspacePage() {
   const { t, i18n } = useTranslation();
   const nav = useNavigate();
@@ -44,10 +82,19 @@ export function WorkspacePage() {
   const runId = params.get("runId");
   const compareIds = (params.get("compareIds") || "").split(",").filter(Boolean);
 
+  const [activity, setActivity] = useState<ActivityMode>("lab");
   const [form, setForm] = useState<RunFormState>(DEFAULT_FORM);
   const [symbol, setSymbol] = useState("SPY");
-  const [showMarkers, setShowMarkers] = useState(true);
-  const [rightTab, setRightTab] = useState<"ai" | "trades" | "diff">("ai");
+  const [showTradeLogs, setShowTradeLogs] = useState(true);
+  const [showPredictions, setShowPredictions] = useState(true);
+  const [chartTimeframe, setChartTimeframe] = useState<ChartTimeframe>("1d");
+  const [vpView, setVpView] = useState<VpView | null>(null);
+  const indicators = useIndicatorEngine();
+  const [rightTab, setRightTab] = useState<RightTab>("ai");
+  const onVpViewChange = useCallback((view: VpView) => {
+    setVpView(view);
+  }, []);
+  const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [mediumOpen, setMediumOpen] = useState(false);
   const [mediumText, setMediumText] = useState("");
@@ -56,8 +103,14 @@ export function WorkspacePage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [compareSel, setCompareSel] = useState<string[]>(compareIds);
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: "quantlab-workspace",
+    id: "quantlab-workspace-v2",
     storage: localStorage,
+  });
+
+  const ready = useQuery({
+    queryKey: ["ready"],
+    queryFn: () => api<Ready>("/ready"),
+    staleTime: 60_000,
   });
 
   const templates = useQuery({
@@ -81,20 +134,76 @@ export function WorkspacePage() {
   });
 
   const overlays = useQuery({
-    queryKey: ["overlays", activeRunId],
+    queryKey: ["overlays", activeRunId, symbol],
     enabled: Boolean(activeRunId),
-    queryFn: () => api<Overlays>(`/runs/${activeRunId}/overlays`),
+    queryFn: () =>
+      api<Overlays>(
+        `/runs/${activeRunId}/overlays?symbol=${encodeURIComponent(symbol)}`,
+      ),
   });
 
-  const bars = useQuery({
-    queryKey: ["bars", symbol, run.data?.panel_uri],
-    enabled: Boolean(run.data?.panel_uri || true),
+  const marketBars = useQuery({
+    queryKey: ["market-bars", symbol, activeRunId],
     queryFn: () => {
-      const q = new URLSearchParams({ symbol, limit: "600" });
-      if (run.data?.panel_uri) q.set("panel_uri", run.data.panel_uri);
-      return api<{ bars: Candle[] }>(`/bars?${q}`);
+      const q = new URLSearchParams({
+        limit: "600",
+        include_predictions: "true",
+      });
+      if (activeRunId) q.set("run_id", activeRunId);
+      return api<{
+        bars: {
+          time: number;
+          timestamp?: string;
+          open: number;
+          high: number;
+          low: number;
+          close: number;
+          volume?: number;
+        }[];
+        trade_logs?: ChartTradeLogMarker[];
+        prediction_overlays?: PredictionOverlay[];
+      }>(`/market/tickers/${symbol}/bars?${q}`);
     },
   });
+
+  const overview = useQuery({
+    queryKey: ["overview", symbol],
+    queryFn: () => api<TickerOverview>(`/market/tickers/${symbol}/overview`),
+  });
+
+  useEffect(() => {
+    const raw = marketBars.data?.bars;
+    if (!raw?.length) return;
+    const bars =
+      chartTimeframe === "1w"
+        ? resampleBarsToWeekly(raw)
+        : raw;
+    const view =
+      vpView ??
+      ({
+        fromIdx: Math.max(0, bars.length - 80),
+        toIdx: bars.length - 1,
+      } satisfies VpView);
+    indicators.compute({
+      bars: bars.map((b) => ({
+        time: b.time,
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume,
+      })),
+      view,
+      enabled: indicators.enabled,
+    });
+  }, [
+    marketBars.data?.bars,
+    indicators.enabled,
+    indicators.ready,
+    symbol,
+    chartTimeframe,
+    vpView,
+  ]);
 
   useEffect(() => {
     if (!run.data?.params) return;
@@ -111,13 +220,20 @@ export function WorkspacePage() {
       maWindow: Number(bt.trend_days ?? f.maWindow),
     }));
     const tickers = (p.tickers as string[]) || [];
-    if (tickers[0]) setSymbol(tickers[0]);
+    if (tickers[0] && activity === "lab") setSymbol(tickers[0]);
   }, [run.data?.id]);
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 3200);
   }, []);
+
+  const setActivityMode = (mode: ActivityMode) => {
+    setActivity(mode);
+    if (mode === "market") setRightTab("ticker");
+    if (mode === "lab") setRightTab("ai");
+    if (mode === "diff") setRightTab("diff");
+  };
 
   const runMut = useMutation({
     mutationFn: async (override?: Partial<RunFormState>) => {
@@ -148,6 +264,7 @@ export function WorkspacePage() {
         n.set("runId", r.id);
         return n;
       });
+      setActivityMode("lab");
     },
   });
 
@@ -161,24 +278,74 @@ export function WorkspacePage() {
 
   const summary = (overlays.data?.summary || run.data?.summary || {}) as Record<string, unknown>;
   const narrative = run.data?.summary?.narrative;
+  const tradeLogs: ChartTradeLogMarker[] =
+    (overlays.data?.trade_logs as ChartTradeLogMarker[] | undefined) ||
+    marketBars.data?.trade_logs ||
+    [];
+  const predictions: PredictionOverlay[] =
+    (overlays.data?.prediction_overlays as PredictionOverlay[] | undefined) ||
+    marketBars.data?.prediction_overlays ||
+    [];
 
-  const chartMarkers = useMemo(() => {
-    const ms = overlays.data?.markers || [];
-    return ms
-      .filter((m: OverlayMarker) => !symbol || m.symbol === symbol || m.action)
-      .filter((m) => m.symbol === symbol)
-      .map((m) => ({
-        time: m.time,
-        shape: (m.action === "SELL" || m.action === "REDUCE" ? "arrowDown" : "arrowUp") as
-          | "arrowUp"
-          | "arrowDown",
-        text: m.action,
-      }));
-  }, [overlays.data?.markers, symbol]);
+  const symbols = form.symbols.length ? form.symbols : ["SPY"];
 
-  const symbols = (form.symbols.length ? form.symbols : ["SPY"]).concat(
-    form.symbols.includes("SHY") ? [] : [],
-  );
+  const equitySeries = useMemo(() => {
+    if (activity === "diff" && compareSel.length >= 2 && overlays.data) {
+      // Multi-run overlay fetched via RunDiffPanel; center uses current + compare stubs via overlays only for active
+      return [
+        {
+          id: "run",
+          label: "Run",
+          color: "#2563eb",
+          data: overlays.data.equity || [],
+        },
+        {
+          id: "spy",
+          label: "SPY",
+          color: "#71717a",
+          data: overlays.data.benchmark_equity || [],
+        },
+      ];
+    }
+    return [
+      {
+        id: "run",
+        label: "Equity",
+        color: "#2563eb",
+        data: overlays.data?.equity || [],
+      },
+      {
+        id: "spy",
+        label: "SPY",
+        color: "#71717a",
+        data: overlays.data?.benchmark_equity || [],
+      },
+    ];
+  }, [activity, compareSel.length, overlays.data]);
+
+  const compareEquityQuery = useQuery({
+    queryKey: ["compare-equity", compareSel.join(",")],
+    enabled: activity === "diff" && compareSel.length >= 2,
+    queryFn: () =>
+      api<{
+        equity_aligned: { time: number; values: Record<string, number | null> }[];
+        runs: { id: string }[];
+      }>(`/runs/compare?ids=${encodeURIComponent(compareSel.join(","))}`),
+  });
+
+  const diffSeries = useMemo(() => {
+    const aligned = compareEquityQuery.data?.equity_aligned || [];
+    const runsList = compareEquityQuery.data?.runs || [];
+    const colors = ["#2563eb", "#dc2626", "#059669"];
+    return runsList.map((r, i) => ({
+      id: r.id,
+      label: `#${r.id.slice(0, 4)}`,
+      color: colors[i % colors.length],
+      data: aligned
+        .filter((p) => p.values[r.id] != null)
+        .map((p) => ({ time: p.time, value: Number(p.values[r.id]) })),
+    }));
+  }, [compareEquityQuery.data]);
 
   async function saveIdea() {
     if (!getToken()) {
@@ -240,271 +407,161 @@ export function WorkspacePage() {
     }
   }
 
+  const dataSourceLabel =
+    ready.data?.data_source?.mode === "fixture"
+      ? t("common.fixture")
+      : ready.data?.data_source?.live_yahoo === "available"
+        ? "Yahoo"
+        : t("common.offline");
+
+  const showStrategyChrome = activity === "lab" || activity === "diff";
+
   return (
     <AppShell dense>
-      <div className="relative flex h-full min-h-0 flex-col">
+      <div className="relative flex h-full min-h-0">
         {toast && (
           <div className="absolute left-1/2 top-2 z-20 -translate-x-1/2 rounded bg-zinc-900 px-3 py-1 text-[11px] text-white">
             {toast}
           </div>
         )}
+        <ActivityBar
+          activity={activity}
+          onChange={setActivityMode}
+          dataSourceLabel={dataSourceLabel}
+        />
         <Group
           orientation="horizontal"
-          className="h-full"
+          className="h-full min-w-0 flex-1"
           defaultLayout={defaultLayout}
           onLayoutChanged={onLayoutChanged}
         >
-          <Panel id="left" defaultSize="22%" minSize="16%" maxSize="36%">
-            <aside className="flex h-full flex-col gap-1.5 overflow-auto border-r border-zinc-200 bg-white p-1.5">
-              <div className="text-[11px] font-semibold text-zinc-700">{t("workspace.templates")}</div>
-              <div className="flex flex-wrap gap-1">
-                {(templates.data?.templates || []).map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                      form.templateId === tpl.id
-                        ? "border-blue-600 bg-blue-600 text-white"
-                        : "border-zinc-300 hover:border-blue-600"
-                    }`}
-                    onClick={() => pickTemplate(tpl.id, tpl.tickers)}
-                  >
-                    {tpl.name}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="rounded border border-dashed border-zinc-400 px-1.5 py-0.5 text-[10px] text-zinc-600"
-                  onClick={() => setMediumOpen(true)}
-                >
-                  {t("workspace.importMedium")}
-                </button>
-              </div>
-
-              <div className="mt-1 text-[11px] font-semibold">{t("workspace.params")}</div>
-              <ParamRow label={t("workspace.symbols")}>
-                <input
-                  className="h-[26px] w-full rounded border border-zinc-300 px-1 text-[11px]"
-                  value={form.symbols.join(",")}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      symbols: e.target.value
-                        .split(/[,\s]+/)
-                        .map((s) => s.trim().toUpperCase())
-                        .filter(Boolean),
-                    })
-                  }
-                />
-              </ParamRow>
-              <ParamRow label={t("workspace.range")}>
-                <div className="flex gap-1">
-                  <input
-                    type="date"
-                    className="h-[26px] w-full rounded border border-zinc-300 px-1 text-[10px]"
-                    value={form.startDate}
-                    onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                  />
-                  <input
-                    type="date"
-                    className="h-[26px] w-full rounded border border-zinc-300 px-1 text-[10px]"
-                    value={form.endDate}
-                    onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-                  />
-                </div>
-              </ParamRow>
-              <ParamRow label={t("workspace.targetVol")}>
-                <input
-                  type="number"
-                  step="0.5"
-                  className="h-[26px] w-full rounded border border-zinc-300 px-1 text-[11px]"
-                  value={form.targetVol}
-                  onChange={(e) => setForm({ ...form, targetVol: Number(e.target.value) })}
-                />
-              </ParamRow>
-              <ParamRow label={t("workspace.maWindow")}>
-                <input
-                  type="number"
-                  className="h-[26px] w-full rounded border border-zinc-300 px-1 text-[11px]"
-                  value={form.maWindow}
-                  onChange={(e) => setForm({ ...form, maWindow: Number(e.target.value) })}
-                />
-              </ParamRow>
-              <ParamRow label={t("workspace.rebalance")}>
-                <select
-                  className="h-[26px] w-full rounded border border-zinc-300 px-1 text-[11px]"
-                  value={form.rebalance}
-                  onChange={(e) => setForm({ ...form, rebalance: e.target.value })}
-                >
-                  <option value="Monthly">{t("workspace.monthly")}</option>
-                </select>
-              </ParamRow>
-              <ParamRow label={t("workspace.cost")}>
-                <input
-                  type="number"
-                  className="h-[26px] w-full rounded border border-zinc-300 px-1 text-[11px]"
-                  value={form.costBps}
-                  onChange={(e) => setForm({ ...form, costBps: Number(e.target.value) })}
-                />
-              </ParamRow>
-              <ParamRow label={t("workspace.benchmark")}>
-                <input
-                  className="h-[26px] w-full rounded border border-zinc-300 px-1 text-[11px]"
-                  value={form.benchmark}
-                  readOnly
-                />
-              </ParamRow>
-              <label className="flex items-center gap-1 text-[10px] text-zinc-500">
-                <input
-                  type="checkbox"
-                  checked={form.enableMc}
-                  onChange={(e) => setForm({ ...form, enableMc: e.target.checked })}
-                />
-                {t("workspace.enableMc")}
-              </label>
-              <label className="flex items-center gap-1 text-[10px] text-zinc-500">
-                <input
-                  type="checkbox"
-                  checked={form.enableRv}
-                  onChange={(e) => setForm({ ...form, enableRv: e.target.checked })}
-                />
-                {t("workspace.enableRv")}
-              </label>
-              <button
-                type="button"
-                className="h-8 rounded bg-blue-600 text-[12px] font-semibold text-white disabled:opacity-60"
-                disabled={runMut.isPending}
-                onClick={() => runMut.mutate(undefined)}
-              >
-                {runMut.isPending ? t("common.loading") : t("workspace.run")}
-              </button>
-              {runMut.isError && (
-                <p className="text-[10px] text-red-600">{(runMut.error as Error).message}</p>
-              )}
-
-              <div className="mt-1 text-[11px] font-semibold">{t("workspace.recent")}</div>
-              <ul className="flex flex-col gap-0.5">
-                {(runs.data?.runs || []).slice(0, 5).map((r) => (
-                  <li
-                    key={r.id}
-                    className={`flex items-center gap-1 rounded border px-1 py-0.5 text-[10px] ${
-                      r.id === activeRunId ? "border-blue-600 bg-blue-50" : "border-zinc-200"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={compareSel.includes(r.id)}
-                      onChange={(e) => {
-                        setCompareSel((prev) =>
-                          e.target.checked ? [...prev, r.id].slice(0, 3) : prev.filter((x) => x !== r.id),
-                        );
-                      }}
-                      title={t("workspace.compare")}
-                    />
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 truncate text-left"
-                      onClick={() =>
-                        setParams((prev) => {
-                          const n = new URLSearchParams(prev);
-                          n.set("runId", r.id);
-                          return n;
-                        })
-                      }
-                    >
-                      #{r.id.slice(0, 4)} {r.name} S:{num(r.summary?.sharpe)}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </aside>
+          <Panel id="left" defaultSize="20%" minSize="14%" maxSize="36%">
+            {activity === "market" ? (
+              <WatchlistPanel
+                selectedSymbol={symbol}
+                runSymbols={(run.data?.params?.tickers as string[]) || form.symbols}
+                onSelect={(sym) => {
+                  setSymbol(sym);
+                  setRightTab("ticker");
+                }}
+              />
+            ) : (
+              <StrategyLabPanel
+                form={form}
+                setForm={setForm}
+                templates={templates.data?.templates || []}
+                runs={runs.data?.runs || []}
+                activeRunId={activeRunId}
+                compareSel={compareSel}
+                setCompareSel={setCompareSel}
+                onPickTemplate={pickTemplate}
+                onImportMedium={() => setMediumOpen(true)}
+                onRun={() => runMut.mutate(undefined)}
+                onSelectRun={(id) =>
+                  setParams((prev) => {
+                    const n = new URLSearchParams(prev);
+                    n.set("runId", id);
+                    return n;
+                  })
+                }
+                runPending={runMut.isPending}
+                runError={runMut.isError ? (runMut.error as Error).message : null}
+              />
+            )}
           </Panel>
 
-          <Separator className="w-1 bg-zinc-200 data-[separator]:hover:bg-blue-600" />
+          <Separator className="w-1 bg-zinc-200" />
 
-          <Panel id="center" defaultSize="53%" minSize="35%">
+          <Panel id="center" defaultSize="58%" minSize="35%">
             <section className="flex h-full min-h-0 flex-col gap-1 overflow-hidden bg-zinc-50 p-1.5">
-              <div className="flex flex-wrap items-center justify-between gap-1 rounded border border-zinc-200 bg-white px-2 py-1 text-[10px]">
-                <div className="truncate">
-                  {activeRunId ? (
-                    <>
-                      Run #{activeRunId.slice(0, 8)} · {run.data?.name} ·{" "}
-                      {(form.symbols || []).join(",")} · {form.startDate.slice(2, 7)}–
-                      {form.endDate.slice(2, 7)} · Vol:{form.targetVol}% · Cost:{form.costBps}bp
-                    </>
-                  ) : (
-                    t("workspace.emptyRun")
-                  )}
-                </div>
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    className="rounded border border-zinc-300 px-1.5 py-0.5"
-                    onClick={() => {
-                      if (compareSel.length < 2) {
+              {showStrategyChrome && (
+                <div className="flex flex-wrap items-center justify-between gap-1 rounded border border-zinc-200 bg-white px-2 py-1 text-[10px]">
+                  <div className="truncate">
+                    {activeRunId ? (
+                      <>
+                        Run #{activeRunId.slice(0, 8)} · {run.data?.name} ·{" "}
+                        {(form.symbols || []).join(",")} · Vol:{form.targetVol}%
+                      </>
+                    ) : (
+                      t("workspace.emptyRun")
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      className="rounded border border-zinc-300 px-1.5 py-0.5"
+                      onClick={() => {
+                        if (compareSel.length < 2) {
+                          flash(t("workspace.compareRecorded"));
+                          return;
+                        }
+                        setParams((prev) => {
+                          const n = new URLSearchParams(prev);
+                          n.set("compareIds", compareSel.join(","));
+                          return n;
+                        });
+                        setActivityMode("diff");
                         flash(t("workspace.compareRecorded"));
-                        return;
-                      }
-                      setParams((prev) => {
-                        const n = new URLSearchParams(prev);
-                        n.set("compareIds", compareSel.join(","));
-                        return n;
-                      });
-                      setRightTab("diff");
-                      flash(t("workspace.compareRecorded"));
-                    }}
-                  >
-                    {t("workspace.addCompare")}
-                  </button>
-                  <button
-                    type="button"
-                    className={`rounded border px-1.5 py-0.5 ${
-                      run.data?.is_subscribed_daily
-                        ? "border-blue-600 bg-blue-600 text-white"
-                        : "border-zinc-300"
-                    }`}
-                    onClick={() => void subscribe()}
-                  >
-                    {run.data?.is_subscribed_daily ? t("workspace.subscribed") : t("workspace.subscribe")}
-                  </button>
+                      }}
+                    >
+                      {t("workspace.addCompare")}
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded border px-1.5 py-0.5 ${
+                        run.data?.is_subscribed_daily
+                          ? "border-blue-600 bg-blue-600 text-white"
+                          : "border-zinc-300"
+                      }`}
+                      onClick={() => void subscribe()}
+                    >
+                      {run.data?.is_subscribed_daily
+                        ? t("workspace.subscribed")
+                        : t("workspace.subscribe")}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div className="grid h-12 grid-cols-6 gap-1">
-                <Kpi
-                  label={t("workspace.kpiCagr")}
-                  value={pct(summary.cagr)}
-                  vs={pct(summary.benchmark_cagr)}
-                  vsLabel={t("workspace.vsSpy")}
-                />
-                <Kpi
-                  label={t("workspace.kpiMaxDd")}
-                  value={pct(summary.max_dd)}
-                  vs={pct(summary.benchmark_max_drawdown)}
-                  vsLabel={t("workspace.vsSpy")}
-                />
-                <Kpi
-                  label={t("workspace.kpiSharpe")}
-                  value={num(summary.sharpe)}
-                  vs={num(summary.benchmark_sharpe)}
-                  vsLabel={t("workspace.vsSpy")}
-                />
-                <Kpi label={t("workspace.kpiSortino")} value={num(summary.sortino)} />
-                <Kpi label={t("workspace.kpiVol")} value={pct(summary.vol)} />
-                <Kpi
-                  label={t("workspace.kpiTurnover")}
-                  value={
-                    summary.turnover != null
-                      ? `${(Number(summary.turnover) * 100).toFixed(0)}%`
-                      : summary.avg_turnover != null
-                        ? `${(Number(summary.avg_turnover) * 100).toFixed(1)}%`
+              {showStrategyChrome && (
+                <div className="grid h-12 grid-cols-6 gap-1">
+                  <Kpi
+                    label={t("workspace.kpiCagr")}
+                    value={pct(summary.cagr)}
+                    vs={pct(summary.benchmark_cagr)}
+                    vsLabel={t("workspace.vsSpy")}
+                  />
+                  <Kpi
+                    label={t("workspace.kpiMaxDd")}
+                    value={pct(summary.max_dd)}
+                    vs={pct(summary.benchmark_max_drawdown)}
+                    vsLabel={t("workspace.vsSpy")}
+                  />
+                  <Kpi
+                    label={t("workspace.kpiSharpe")}
+                    value={num(summary.sharpe)}
+                    vs={num(summary.benchmark_sharpe)}
+                    vsLabel={t("workspace.vsSpy")}
+                  />
+                  <Kpi label={t("workspace.kpiSortino")} value={num(summary.sortino)} />
+                  <Kpi label={t("workspace.kpiVol")} value={pct(summary.vol)} />
+                  <Kpi
+                    label={t("workspace.kpiTurnover")}
+                    value={
+                      summary.turnover != null
+                        ? `${(Number(summary.turnover) * 100).toFixed(0)}%`
                         : "—"
-                  }
-                />
-              </div>
+                    }
+                  />
+                </div>
+              )}
 
-              <div className="flex items-center gap-1 text-[10px]">
-                {symbols.map((s) => (
+              <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                <span className="font-semibold">{symbol}</span>
+                {(activity === "market"
+                  ? ["AAPL", "MSFT", "NVDA", "GOOG", "TQQQ", "SPY", "QQQ"]
+                  : symbols
+                ).map((s) => (
                   <button
                     key={s}
                     type="button"
@@ -516,178 +573,97 @@ export function WorkspacePage() {
                     {s}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  className="ml-auto rounded border border-zinc-300 px-1.5 py-0.5"
-                  onClick={() => setShowMarkers((v) => !v)}
-                >
-                  {t("workspace.showMarkers")}
-                </button>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-hidden rounded border border-zinc-200 bg-white p-1">
-                {bars.data?.bars?.length ? (
-                  <ChartPanel
-                    symbol={symbol}
-                    candles={bars.data.bars}
-                    equity={overlays.data?.equity}
-                    benchmark={overlays.data?.benchmark_equity}
-                    markers={chartMarkers}
-                    showMarkers={showMarkers}
-                    candleHeight={200}
-                    equityHeight={120}
+                <label className="ml-2 inline-flex items-center gap-0.5">
+                  <input
+                    type="checkbox"
+                    checked={showTradeLogs}
+                    onChange={(e) => setShowTradeLogs(e.target.checked)}
                   />
-                ) : (
-                  <p className="p-4 text-[11px] text-zinc-500">{t("workspace.emptyRun")}</p>
-                )}
+                  Logs
+                </label>
+                <label className="inline-flex items-center gap-0.5">
+                  <input
+                    type="checkbox"
+                    checked={showPredictions}
+                    onChange={(e) => setShowPredictions(e.target.checked)}
+                  />
+                  Pred
+                </label>
               </div>
 
-              <PipelineBar steps={run.data?.steps_trace || []} />
+              <div className="flex min-h-0 flex-[1.4] flex-col overflow-hidden">
+                <ChartWorkspace
+                  symbol={symbol}
+                  bars={marketBars.data?.bars || []}
+                  features={DEFAULT_CHART_FEATURES}
+                  timeframe={chartTimeframe}
+                  onTimeframeChange={setChartTimeframe}
+                  enabled={indicators.enabled}
+                  onToggle={indicators.toggle}
+                  indicatorResult={indicators.result}
+                  tradeLogs={tradeLogs}
+                  predictions={predictions}
+                  showTradeLogs={showTradeLogs}
+                  showPredictions={showPredictions}
+                  selectedLogId={selectedLogId}
+                  error={indicators.error}
+                  onVpViewChange={onVpViewChange}
+                  onSelectLog={(id) => {
+                    setSelectedLogId(id);
+                    setRightTab("trades");
+                  }}
+                />
+              </div>
+
+              {showStrategyChrome && (
+                <div className="shrink-0 overflow-hidden rounded border border-zinc-200 bg-white p-1">
+                  <EquityBenchmarkChart
+                    series={activity === "diff" && diffSeries.length ? diffSeries : equitySeries}
+                    height={120}
+                  />
+                </div>
+              )}
+
+              {showStrategyChrome && <PipelineBar steps={run.data?.steps_trace || []} />}
             </section>
           </Panel>
 
-          <Separator className="w-1 bg-zinc-200 data-[separator]:hover:bg-blue-600" />
+          <Separator className="w-1 bg-zinc-200" />
 
-          <Panel id="right" defaultSize="25%" minSize="18%" maxSize="40%">
-            <aside className="flex h-full min-h-0 flex-col gap-1 overflow-hidden border-l border-zinc-200 bg-white p-1.5">
-              <div className="flex gap-1 text-[10px]">
-                {(
-                  [
-                    ["ai", t("workspace.tabAi")],
-                    ["trades", t("workspace.tabTrades")],
-                    ["diff", `${t("workspace.tabDiff")} (${t("common.step2")})`],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={`rounded px-1.5 py-0.5 ${
-                      rightTab === id ? "bg-zinc-900 text-white" : "border border-zinc-300"
-                    }`}
-                    onClick={() => setRightTab(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-auto text-[11px]">
-                {rightTab === "ai" && (
-                  <div className="flex flex-col gap-2">
-                    <section>
-                      <h3 className="font-semibold">{t("workspace.coreConclusion")}</h3>
-                      <p className="text-zinc-700">{narrative?.headline || "—"}</p>
-                    </section>
-                    <section>
-                      <h3 className="font-semibold">{t("workspace.riskAttribution")}</h3>
-                      <p className="text-zinc-700">{narrative?.attribution || "—"}</p>
-                    </section>
-                    <section>
-                      <h3 className="font-semibold">{t("workspace.honestWarning")}</h3>
-                      <ul className="list-disc pl-4 text-zinc-600">
-                        {(narrative?.honest_warnings || []).map((w) => (
-                          <li key={w}>{w}</li>
-                        ))}
-                      </ul>
-                    </section>
-                    <div className="flex flex-wrap gap-1">
-                      {(narrative?.next_actions || []).map((a) => (
-                        <button
-                          key={a.label}
-                          type="button"
-                          className="rounded border border-amber-500 bg-amber-50 px-1.5 py-0.5 text-[10px]"
-                          onClick={() => {
-                            const patched = applyPatch(form, a.patch_params);
-                            setForm(patched);
-                            runMut.mutate(patched);
-                          }}
-                        >
-                          {a.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {rightTab === "trades" && (
-                  <div>
-                    <table className="w-full text-left text-[10px]">
-                      <thead>
-                        <tr className="border-b border-zinc-200 text-zinc-500">
-                          <th className="py-0.5">Date</th>
-                          <th>Sym</th>
-                          <th>Act</th>
-                          <th>Δw</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(overlays.data?.markers || []).slice(0, 8).map((m, i) => (
-                          <tr key={`${m.time}-${m.symbol}-${i}`} className="border-b border-zinc-100">
-                            <td className="py-0.5">
-                              {new Date(m.time * 1000).toISOString().slice(2, 10)}
-                            </td>
-                            <td>{m.symbol}</td>
-                            <td>{m.action}</td>
-                            <td>
-                              {m.weight_before != null && m.weight_after != null
-                                ? `${(m.weight_before * 100).toFixed(0)}%→${(m.weight_after * 100).toFixed(0)}%`
-                                : "—"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <p className="mt-2 text-[10px] text-zinc-500">{t("workspace.tradeStub")}</p>
-                  </div>
-                )}
-                {rightTab === "diff" && (
-                  <div>
-                    <p className="text-zinc-600">
-                      {compareIds.length
-                        ? `compareIds=${compareIds.join(",")}`
-                        : t("workspace.diffStub")}
-                    </p>
-                    <p className="mt-2 text-[10px] text-zinc-500">{t("workspace.diffStub")}</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex h-36 shrink-0 flex-col rounded border border-zinc-200">
-                <div className="border-b border-zinc-200 px-1.5 py-0.5 text-[10px] text-zinc-500">
-                  Agent · Gemini
-                </div>
-                <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1 text-[10px]">
-                  {!getToken() && (
-                    <p className="text-zinc-500">
-                      {t("workspace.chatLogin")} —{" "}
-                      <Link className="text-blue-700" to="/login?next=/workspace">
-                        {t("common.login")}
-                      </Link>
-                    </p>
-                  )}
-                  {chatLog.map((m, i) => (
-                    <div key={i} className="mb-1">
-                      <strong>{m.role === "user" ? ">" : "Lab"}</strong> {m.text}
-                    </div>
-                  ))}
-                </div>
-                <div className="flex gap-1 border-t border-zinc-200 p-1">
-                  <input
-                    className="h-7 min-w-0 flex-1 rounded border border-zinc-300 px-1 text-[10px]"
-                    value={chatInput}
-                    placeholder={t("workspace.chatPlaceholder")}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && void sendChat()}
-                  />
-                  <button
-                    type="button"
-                    className="rounded bg-blue-600 px-2 text-[10px] text-white"
-                    onClick={() => void sendChat()}
-                  >
-                    {t("common.send")}
-                  </button>
-                </div>
-              </div>
-            </aside>
+          <Panel id="right" defaultSize="22%" minSize="16%" maxSize="40%">
+            <RightInspector
+              tab={rightTab}
+              onTab={setRightTab}
+              overview={overview.data}
+              overviewLoading={overview.isLoading}
+              wasmScalars={indicators.result.scalars}
+              bars={marketBars.data?.bars || []}
+              indicatorResult={indicators.result}
+              onAddToStrategy={(sym) => {
+                setForm((f) =>
+                  f.symbols.includes(sym) ? f : { ...f, symbols: [...f.symbols, sym] },
+                );
+                setActivityMode("lab");
+                flash(`${sym} → strategy`);
+              }}
+              tradeLogs={tradeLogs}
+              selectedLogId={selectedLogId}
+              onSelectLog={(id, log) => {
+                setSelectedLogId(id);
+                if (log.symbol) setSymbol(log.symbol);
+              }}
+              narrative={narrative}
+              onAiAction={(patch) => {
+                const patched = applyPatch(form, patch);
+                setForm(patched);
+                runMut.mutate(patched);
+              }}
+              compareIds={compareSel.length >= 2 ? compareSel : compareIds}
+              chatLog={chatLog}
+              chatInput={chatInput}
+              setChatInput={setChatInput}
+              onSendChat={() => void sendChat()}
+            />
           </Panel>
         </Group>
       </div>
@@ -722,75 +698,5 @@ export function WorkspacePage() {
         </div>
       )}
     </AppShell>
-  );
-}
-
-function ParamRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="grid grid-cols-[72px_1fr] items-center gap-1 text-[10px]">
-      <span className="truncate text-zinc-500">{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-  vs,
-  vsLabel,
-}: {
-  label: string;
-  value: string;
-  vs?: string;
-  vsLabel?: string;
-}) {
-  return (
-    <div className="rounded border border-zinc-200 bg-white px-1.5 py-1">
-      <div className="text-[9px] text-zinc-500">{label}</div>
-      <div className="text-[15px] font-bold leading-tight">{value}</div>
-      {vs != null && (
-        <div className="text-[9px] text-zinc-500">
-          {vsLabel}: {vs}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PipelineBar({
-  steps,
-}: {
-  steps: { module_id: string; name: string; status: string; duration_ms: number; io_summary?: string }[];
-}) {
-  const defaults = ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9"];
-  const byId = Object.fromEntries(steps.map((s) => [s.module_id, s]));
-  return (
-    <div className="flex h-8 items-center gap-1 overflow-x-auto rounded border border-zinc-200 bg-white px-1 text-[9px]">
-      {defaults.map((id, i) => {
-        const s = byId[id];
-        const status = s?.status || "placeholder";
-        const done = status === "completed";
-        const stub = status === "placeholder" || status === "not_implemented_in_step1" || status === "skipped";
-        return (
-          <span key={id} className="inline-flex items-center gap-1">
-            <span
-              title={s ? `${s.name} · ${s.io_summary || ""}` : id}
-              className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 ${
-                done
-                  ? "border-emerald-600 bg-emerald-50 text-emerald-800"
-                  : stub
-                    ? "border-dashed border-zinc-400 text-zinc-500"
-                    : "border-zinc-300"
-              }`}
-            >
-              {done ? "OK" : stub ? "…" : "·"} {id}
-              {done && s ? ` ${s.duration_ms}ms` : ""}
-            </span>
-            {i < defaults.length - 1 && <span className="text-zinc-300">→</span>}
-          </span>
-        );
-      })}
-    </div>
   );
 }
