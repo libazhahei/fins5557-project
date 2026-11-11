@@ -34,6 +34,10 @@ type ChartApi = {
   setPaneOptions?: (options: Record<string, unknown>) => void;
   resize?: () => void;
   getVisibleRange?: () => { from: number; to: number; realFrom?: number; realTo?: number };
+  getOffsetRightDistance?: () => number;
+  setOffsetRightDistance?: (distance: number) => void;
+  getBarSpace?: () => number;
+  setBarSpace?: (space: number) => void;
   subscribeAction?: (type: string, cb: (...args: unknown[]) => void) => void;
   unsubscribeAction?: (type: string, cb?: (...args: unknown[]) => void) => void;
   convertToPixel?: (
@@ -45,6 +49,37 @@ type ChartApi = {
   executeAction?: (type: string, data?: unknown) => void;
   getDataList?: () => KLineData[];
 };
+
+type ChartViewport = {
+  offsetRight: number;
+  barSpace: number;
+  to: number;
+};
+
+function captureViewport(chart: ChartApi): ChartViewport | null {
+  try {
+    const range = chart.getVisibleRange?.();
+    return {
+      offsetRight: chart.getOffsetRightDistance?.() ?? 0,
+      barSpace: chart.getBarSpace?.() ?? 0,
+      to: range?.to ?? -1,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Restore pan/zoom after applyNewData (which resets to the right edge). */
+function restoreViewport(chart: ChartApi, vp: ChartViewport | null) {
+  if (!vp) return;
+  try {
+    if (vp.barSpace > 0) chart.setBarSpace?.(vp.barSpace);
+    chart.setOffsetRightDistance?.(vp.offsetRight);
+    if (vp.to >= 0) chart.scrollToDataIndex?.(Math.floor(vp.to), 0);
+  } catch {
+    /* ignore */
+  }
+}
 
 /** Sub-pane height that keeps candle + all subs inside the host. */
 function fitSubPaneHeight(hostH: number, subCount: number): number {
@@ -221,6 +256,9 @@ export function KlineChartCanvas({
   const paneIdsRef = useRef<string[]>([]);
   const volPaneIdRef = useRef<string | null>(null);
   const onVisibleRangeChangeRef = useRef(onVisibleRangeChange);
+  /** Skip VP feedback while we restore pan after indicator redraw. */
+  const suppressVisibleEmitRef = useRef(false);
+  const barsFingerprintRef = useRef("");
   const [status, setStatus] = useState("");
   const [overlayGeoms, setOverlayGeoms] = useState<OverlayGeometry[]>([]);
   const [markerPixels, setMarkerPixels] = useState<
@@ -244,6 +282,10 @@ export function KlineChartCanvas({
       axisOptions: { scrollZoomEnabled: true },
     });
     const emitVisible = () => {
+      if (suppressVisibleEmitRef.current) {
+        setOverlayTick((n) => n + 1);
+        return;
+      }
       const range = chart.getVisibleRange?.();
       if (!range) return;
       onVisibleRangeChangeRef.current?.({ from: range.from, to: range.to });
@@ -270,6 +312,8 @@ export function KlineChartCanvas({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !bars.length) return;
+    const fingerprint = `${symbol}:${bars.length}:${bars[0]?.time}:${bars.at(-1)?.time}`;
+    barsFingerprintRef.current = fingerprint;
     chart.applyNewData(toKline(bars));
     // After data loads, report the current visible window for VP.
     window.setTimeout(() => {
@@ -388,7 +432,16 @@ export function KlineChartCanvas({
     }
     paneIdsRef.current = [];
 
-    chart.applyNewData(toKline(bars));
+    // applyNewData resets pan to the right edge. Only reload candles when the
+    // bar series identity changed; always capture/restore viewport for VP pans.
+    const fingerprint = `${symbol}:${bars.length}:${bars[0]?.time}:${bars.at(-1)?.time}`;
+    const barsChanged = barsFingerprintRef.current !== fingerprint;
+    const savedView = captureViewport(chart);
+    suppressVisibleEmitRef.current = true;
+    if (barsChanged) {
+      barsFingerprintRef.current = fingerprint;
+      chart.applyNewData(toKline(bars));
+    }
 
     const groups = groupSeriesIntoPanes(series);
     const subCount = groups.filter((g) => !g.isMain).length;
@@ -475,9 +528,11 @@ export function KlineChartCanvas({
       });
     }
 
+    restoreViewport(chart, savedView);
     window.setTimeout(() => {
       chart.resize?.();
-      chart.applyNewData(toKline(bars));
+      restoreViewport(chart, savedView);
+      suppressVisibleEmitRef.current = false;
       setOverlayTick((n) => n + 1);
     }, 0);
     const predN = chartPredictions.length;
@@ -486,7 +541,7 @@ export function KlineChartCanvas({
         ? `WASM ${series.length} series · ${created} drawn · ${subCount} panes · h${subHeight} · Pred ${predN}`
         : `WASM 0 series · Pred ${predN}`,
     );
-  }, [indicatorResult, bars, chartPredictions]);
+  }, [indicatorResult, bars, chartPredictions, symbol]);
 
   // Project Pred + trade markers into SVG pixels
   useEffect(() => {
